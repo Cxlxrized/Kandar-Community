@@ -64,20 +64,17 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
   }
 })();
 
-// === Ready Event ===
+// === Ready ===
 client.once("ready", async () => {
   console.log(`🤖 Eingeloggt als ${client.user.tag}`);
-
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
-  if (!guild) return console.log("⚠️ Keine Guild gefunden!");
+  if (!guild) return;
 
   // === Server Stats Kategorie ===
   const categoryName = "📊 Server Stats";
   let category = guild.channels.cache.find(c => c.name === categoryName && c.type === ChannelType.GuildCategory);
-  if (!category) {
+  if (!category)
     category = await guild.channels.create({ name: categoryName, type: ChannelType.GuildCategory });
-    console.log("📈 Kategorie 'Server Stats' erstellt!");
-  }
 
   const stats = {
     members: "🧍‍♂️ Mitglieder",
@@ -120,15 +117,9 @@ client.once("ready", async () => {
 
   await updateStats();
   setInterval(updateStats, 5 * 60 * 1000);
-  client.on("guildMemberAdd", updateStats);
-  client.on("guildMemberRemove", updateStats);
-  client.on("presenceUpdate", updateStats);
-  client.on("guildMemberUpdate", updateStats);
-
-  console.log("📊 Server Stats aktiv!");
 });
 
-// === Welcome Embed ===
+// === Welcome ===
 client.on("guildMemberAdd", async (member) => {
   const ch = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
   if (!ch) return;
@@ -136,9 +127,7 @@ client.on("guildMemberAdd", async (member) => {
     .setColor("#00FF00")
     .setTitle("👋 Willkommen auf dem Server!")
     .setDescription(`Willkommen ${member}, schön, dass du da bist! 🎉`)
-    .setImage("https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif")
-    .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
-    .setTimestamp();
+    .setImage("https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif");
   ch.send({ embeds: [embed] });
 });
 
@@ -152,12 +141,11 @@ client.on("guildMemberUpdate", async (oldM, newM) => {
     .setColor("#FF00FF")
     .setTitle("💎 Neuer Server-Boost!")
     .setDescription(`Vielen Dank ${newM} fürs Boosten des Servers! 🚀💖`)
-    .setImage("https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif")
-    .setTimestamp();
+    .setImage("https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif");
   ch.send({ embeds: [embed] });
 });
 
-// === Ticket-System ===
+// === Interactions ===
 client.on("interactionCreate", async (i) => {
   try {
     // === PAYPAL ===
@@ -169,12 +157,9 @@ client.on("interactionCreate", async (i) => {
       const embed = new EmbedBuilder()
         .setColor("#0099ff")
         .setTitle("💰 PayPal Zahlung")
-        .setDescription(`Klicke auf den Button, um **${amount}€** zu zahlen.`)
+        .setDescription(`Klicke unten, um **${amount}€** zu zahlen.`)
         .setFooter({ text: "Kandar Community" });
-      const btn = new ButtonBuilder()
-        .setLabel(`Jetzt ${amount}€ zahlen`)
-        .setStyle(ButtonStyle.Link)
-        .setURL(link);
+      const btn = new ButtonBuilder().setLabel(`Jetzt ${amount}€ zahlen`).setStyle(ButtonStyle.Link).setURL(link);
       return i.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(btn)] });
     }
 
@@ -193,37 +178,34 @@ client.on("interactionCreate", async (i) => {
         )
         .setImage("https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif");
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId("shop_ticket").setLabel("💰 Shop Ticket").setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId("streamer_ticket").setLabel("🎥 Streamer Bewerbung").setStyle(ButtonStyle.Primary)
+        new ButtonBuilder().setCustomId("ticket_shop").setLabel("💰 Shop Ticket").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId("ticket_streamer").setLabel("🎥 Streamer Bewerbung").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId("ticket_kandar").setLabel("✍️ Kandar Bewerbung").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId("ticket_designer").setLabel("🎨 Designer Bewerbung").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId("ticket_cutter").setLabel("✂️ Cutter Bewerbung").setStyle(ButtonStyle.Secondary)
       );
       return i.reply({ embeds: [embed], components: [row] });
     }
 
-    // Shop Modal
-    if (i.isButton() && i.customId === "shop_ticket") {
-      const modal = new ModalBuilder().setCustomId("shop_modal").setTitle("Shop Ticket erstellen");
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId("artikel").setLabel("Artikelname").setStyle(TextInputStyle.Short).setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId("payment").setLabel("Zahlungsmethode").setStyle(TextInputStyle.Short).setRequired(true)
-        )
-      );
-      return i.showModal(modal);
+    // === Nuke ===
+    if (i.isChatInputCommand() && i.commandName === "nuke") {
+      const channel = i.channel;
+      await i.reply({ content: "⚠️ Nuking wird ausgeführt...", flags: 64 });
+      let fetched;
+      do {
+        fetched = await channel.messages.fetch({ limit: 100 });
+        await channel.bulkDelete(fetched, true);
+      } while (fetched.size >= 2);
+      await channel.send("✅ Channel wurde genukt!");
     }
 
-    if (i.isModalSubmit() && i.customId === "shop_modal") {
-      const artikel = i.fields.getTextInputValue("artikel");
-      const payment = i.fields.getTextInputValue("payment");
+    // === Ticket Modals ===
+    const createTicket = async (i, categoryName, title, description) => {
       const guild = i.guild;
-      const categoryName = "💰 Shop Tickets";
       let cat = guild.channels.cache.find(c => c.name === categoryName && c.type === ChannelType.GuildCategory);
-      if (!cat)
-        cat = await guild.channels.create({ name: categoryName, type: ChannelType.GuildCategory });
-
+      if (!cat) cat = await guild.channels.create({ name: categoryName, type: ChannelType.GuildCategory });
       const ch = await guild.channels.create({
-        name: `💰-${i.user.username}`,
+        name: `${title}-${i.user.username}`,
         type: ChannelType.GuildText,
         parent: cat.id,
         permissionOverwrites: [
@@ -231,128 +213,59 @@ client.on("interactionCreate", async (i) => {
           { id: i.user.id, allow: ["ViewChannel", "SendMessages", "ReadMessageHistory"] },
         ],
       });
-
-      const embed = new EmbedBuilder()
-        .setColor("#00FF00")
-        .setTitle("💰 Shop Ticket erstellt")
-        .setDescription(`**Artikel:** ${artikel}\n**Zahlungsmethode:** ${payment}`)
-        .setTimestamp();
+      const embed = new EmbedBuilder().setColor("#00FF00").setTitle(title).setDescription(description).setTimestamp();
       await ch.send({ content: `${i.user}`, embeds: [embed] });
-      return i.reply({ content: `✅ Ticket erstellt: ${ch}`, flags: 64 });
+
+      const log = guild.channels.cache.get(process.env.TICKET_LOG_CHANNEL_ID);
+      if (log) log.send({ embeds: [embed.setTitle(`🧾 ${title} erstellt von ${i.user.username}`)] });
+      return ch;
+    };
+
+    // Shop Modal
+    if (i.isButton() && i.customId === "ticket_shop") {
+      const modal = new ModalBuilder().setCustomId("modal_shop").setTitle("Shop Ticket erstellen");
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("artikel").setLabel("Artikel").setStyle(TextInputStyle.Short).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("payment").setLabel("Zahlungsmethode").setStyle(TextInputStyle.Short).setRequired(true))
+      );
+      return i.showModal(modal);
+    }
+    if (i.isModalSubmit() && i.customId === "modal_shop") {
+      const artikel = i.fields.getTextInputValue("artikel");
+      const payment = i.fields.getTextInputValue("payment");
+      await createTicket(i, "💰 Shop Tickets", "💰 Shop Ticket", `**Artikel:** ${artikel}\n**Payment:** ${payment}`);
+      return i.reply({ content: "✅ Shop Ticket erstellt!", flags: 64 });
     }
 
     // Streamer Modal
-    if (i.isButton() && i.customId === "streamer_ticket") {
-      const modal = new ModalBuilder().setCustomId("streamer_modal").setTitle("Streamer Bewerbung");
+    if (i.isButton() && i.customId === "ticket_streamer") {
+      const modal = new ModalBuilder().setCustomId("modal_streamer").setTitle("Streamer Bewerbung");
       modal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId("follower").setLabel("Follower").setStyle(TextInputStyle.Short).setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId("average").setLabel("Average Viewer").setStyle(TextInputStyle.Short).setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId("twitch").setLabel("Twitch Link").setStyle(TextInputStyle.Short).setRequired(true)
-        )
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("follower").setLabel("Follower").setStyle(TextInputStyle.Short).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("average").setLabel("Average Viewer").setStyle(TextInputStyle.Short).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("twitch").setLabel("Twitch Link").setStyle(TextInputStyle.Short).setRequired(true))
       );
       return i.showModal(modal);
     }
-
-    if (i.isModalSubmit() && i.customId === "streamer_modal") {
+    if (i.isModalSubmit() && i.customId === "modal_streamer") {
       const follower = i.fields.getTextInputValue("follower");
       const average = i.fields.getTextInputValue("average");
       const twitch = i.fields.getTextInputValue("twitch");
-      const guild = i.guild;
-      const catName = "🎥 Streamer Bewerbungen";
-      let cat = guild.channels.cache.find(c => c.name === catName && c.type === ChannelType.GuildCategory);
-      if (!cat)
-        cat = await guild.channels.create({ name: catName, type: ChannelType.GuildCategory });
-      const ch = await guild.channels.create({
-        name: `🎥-${i.user.username}`,
-        type: ChannelType.GuildText,
-        parent: cat.id,
-        permissionOverwrites: [
-          { id: guild.roles.everyone.id, deny: ["ViewChannel"] },
-          { id: i.user.id, allow: ["ViewChannel", "SendMessages", "ReadMessageHistory"] },
-        ],
-      });
-      const embed = new EmbedBuilder()
-        .setColor("#00FF88")
-        .setTitle("🎥 Streamer Bewerbung")
-        .setDescription(`**Follower:** ${follower}\n**Average Viewer:** ${average}\n**Twitch:** ${twitch}`)
-        .setTimestamp();
-      await ch.send({ content: `${i.user}`, embeds: [embed] });
-      return i.reply({ content: `✅ Bewerbung erstellt: ${ch}`, flags: 64 });
+      await createTicket(i, "🎥 Streamer Bewerbungen", "🎥 Streamer Bewerbung", `**Follower:** ${follower}\n**Average Viewer:** ${average}\n**Twitch:** ${twitch}`);
+      return i.reply({ content: "✅ Streamer Bewerbung erstellt!", flags: 64 });
     }
+
+    // Weitere Ticketarten ohne Modals
+    if (i.isButton() && i.customId === "ticket_kandar")
+      return createTicket(i, "✍️ Kandar Bewerbungen", "✍️ Kandar Bewerbung", "Bitte schreibe deine Bewerbung hier.");
+    if (i.isButton() && i.customId === "ticket_designer")
+      return createTicket(i, "🎨 Designer Bewerbungen", "🎨 Designer Bewerbung", "Bitte sende dein Portfolio und Beispielarbeiten.");
+    if (i.isButton() && i.customId === "ticket_cutter")
+      return createTicket(i, "✂️ Cutter Bewerbungen", "✂️ Cutter Bewerbung", "Bitte nenne deine Software & Erfahrung.");
 
   } catch (err) {
     console.error("❌ Interaktionsfehler:", err);
   }
-});
-
-// === LOGGING SYSTEM ===
-
-// Member Logs
-client.on("guildMemberAdd", m => {
-  const log = m.guild.channels.cache.get(process.env.MEMBER_LOGS_CHANNEL_ID);
-  if (log) log.send({ embeds: [new EmbedBuilder().setColor("#00FF00").setTitle("👋 Neues Mitglied").setDescription(`${m} ist beigetreten.`)] });
-});
-
-client.on("guildMemberRemove", m => {
-  const log = m.guild.channels.cache.get(process.env.MEMBER_LOGS_CHANNEL_ID);
-  if (log) log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🚪 Mitglied hat verlassen").setDescription(`${m.user.tag} hat den Server verlassen.`)] });
-});
-
-// Message Logs
-client.on("messageDelete", msg => {
-  if (!msg.guild || msg.author?.bot) return;
-  const log = msg.guild.channels.cache.get(process.env.MESSAGE_LOGS_CHANNEL_ID);
-  if (!log) return;
-  const embed = new EmbedBuilder().setColor("#FF0000").setTitle("🗑 Nachricht gelöscht")
-    .setDescription(`Von ${msg.author}\nIn ${msg.channel}\n\n${msg.content || "[Embed/Datei]"}`);
-  log.send({ embeds: [embed] });
-});
-
-// Channel Logs
-client.on("channelCreate", ch => {
-  const log = ch.guild.channels.cache.get(process.env.CHANNEL_LOGS_CHANNEL_ID);
-  if (log) log.send({ embeds: [new EmbedBuilder().setColor("#00FF00").setTitle("📢 Channel erstellt").setDescription(`${ch.name}`)] });
-});
-client.on("channelDelete", ch => {
-  const log = ch.guild.channels.cache.get(process.env.CHANNEL_LOGS_CHANNEL_ID);
-  if (log) log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🗑 Channel gelöscht").setDescription(`${ch.name}`)] });
-});
-
-// Role Logs
-client.on("roleCreate", r => {
-  const log = r.guild.channels.cache.get(process.env.ROLE_LOGS_CHANNEL_ID);
-  if (log) log.send({ embeds: [new EmbedBuilder().setColor("#00FF00").setTitle("🎭 Rolle erstellt").setDescription(`${r.name}`)] });
-});
-client.on("roleDelete", r => {
-  const log = r.guild.channels.cache.get(process.env.ROLE_LOGS_CHANNEL_ID);
-  if (log) log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🎭 Rolle gelöscht").setDescription(`${r.name}`)] });
-});
-
-// Server Logs
-client.on("guildUpdate", (oldG, newG) => {
-  const log = newG.channels.cache.get(process.env.SERVER_LOGS_CHANNEL_ID);
-  if (!log) return;
-  const changes = [];
-  if (oldG.name !== newG.name) changes.push(`📛 Name geändert: **${oldG.name} → ${newG.name}**`);
-  if (oldG.icon !== newG.icon) changes.push(`🖼️ Servericon geändert.`);
-  if (changes.length) log.send({ embeds: [new EmbedBuilder().setColor("#FFD700").setTitle("⚙️ Server geändert").setDescription(changes.join("\n"))] });
-});
-
-// Voice Logs
-client.on("voiceStateUpdate", (o, n) => {
-  const log = n.guild.channels.cache.get(process.env.VOICE_LOGS_CHANNEL_ID);
-  if (!log) return;
-  let desc = "";
-  const user = n.member.user;
-  if (!o.channel && n.channel) desc = `🎙️ ${user} ist **${n.channel.name}** beigetreten.`;
-  else if (o.channel && !n.channel) desc = `🔇 ${user} hat **${o.channel.name}** verlassen.`;
-  else if (o.channelId !== n.channelId) desc = `🔁 ${user} wechselte von **${o.channel.name}** zu **${n.channel.name}**.`;
-  if (desc) log.send({ embeds: [new EmbedBuilder().setColor("#00A8FF").setTitle("🔊 Voice Log").setDescription(desc)] });
 });
 
 // === Login ===
