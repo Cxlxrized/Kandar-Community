@@ -1,183 +1,150 @@
-import { SlashCommandBuilder, ActionRowBuilder, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder, ButtonBuilder, ButtonStyle, ChannelType } from 'discord.js';
+import { ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import fs from 'fs';
-import 'dotenv/config';
 
-// ========================= Nuke Command =========================
-export const nukeCommandData = new SlashCommandBuilder()
-  .setName('nuke')
-  .setDescription('Löscht alle Nachrichten im aktuellen Channel');
-
-// ========================= Order Command =========================
-export const orderCommandData = new SlashCommandBuilder()
-  .setName('order')
-  .setDescription('Erstellt oder verwaltet Bestellungen')
-  .addStringOption(option =>
-    option.setName('artikel')
-      .setDescription('Gib den Artikel ein')
-      .setRequired(true)
-  );
-
-// ========================= PayPal Command =========================
-export const paypalCommandData = new SlashCommandBuilder()
-  .setName('paypal')
-  .setDescription('Erstellt einen PayPal-Zahlungslink')
-  .addNumberOption(option =>
-    option.setName('betrag')
-      .setDescription('Betrag in Euro')
-      .setRequired(true)
-  );
-
-// ========================= Verify Command =========================
-export const verifyCommandData = new SlashCommandBuilder()
-  .setName('verify')
-  .setDescription('Zeigt das Regelwerk und gibt die Verifikationsrolle');
-
-// ========================= Giveaway Command =========================
-export const giveawayCommandData = new SlashCommandBuilder()
-  .setName('giveaway')
-  .setDescription('Erstellt, löscht oder rerollt Giveaways')
-  .addStringOption(option =>
-    option.setName('aktion')
-      .setDescription('Erstelle, lösche oder reroll')
-      .setRequired(true)
-      .addChoices(
-        { name: 'Erstellen', value: 'create' },
-        { name: 'Löschen', value: 'delete' },
-        { name: 'Reroll', value: 'reroll' }
-      )
-  )
-  .addStringOption(option =>
-    option.setName('zeit')
-      .setDescription('Gib die Dauer an (z.B. 1d, 2h, 30m)')
-      .setRequired(false)
-  )
-  .addIntegerOption(option =>
-    option.setName('gewinner')
-      .setDescription('Anzahl der Gewinner')
-      .setRequired(false)
-  )
-  .addStringOption(option =>
-    option.setName('preis')
-      .setDescription('Preis des Giveaways')
-      .setRequired(false)
-  );
-
-// ========================= COMMAND LOGIC =========================
 export default (client) => {
-  client.on('interactionCreate', async interaction => {
+  client.on('interactionCreate', async (interaction) => {
     try {
+      // -------------------- /creator add --------------------
+      if (interaction.isCommand() && interaction.commandName === 'creator') {
+        if (interaction.options.getSubcommand() === 'add') {
+          const modal = new ModalBuilder()
+            .setCustomId('creatorAddModal')
+            .setTitle('Creator hinzufügen');
 
-      // -------------------- /nuke --------------------
-      if (interaction.isCommand() && interaction.commandName === 'nuke') {
-        const allowedRoles = process.env.NUKE_ROLES?.split(',') || [];
-        const memberRoles = interaction.member.roles.cache.map(r => r.id);
+          const titleInput = new TextInputBuilder()
+            .setCustomId('title')
+            .setLabel('Titel des Embeds')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
 
-        if (!allowedRoles.some(r => memberRoles.includes(r))) {
-          return interaction.reply({ content: '❌ Du hast keine Berechtigung!', ephemeral: true });
+          const creatorIdInput = new TextInputBuilder()
+            .setCustomId('creatorId')
+            .setLabel('Discord-ID des Creators')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+
+          const twitchInput = new TextInputBuilder()
+            .setCustomId('twitch')
+            .setLabel('Twitch Link (Pflicht)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+
+          const tiktokInput = new TextInputBuilder()
+            .setCustomId('tiktok')
+            .setLabel('TikTok Link (Optional)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
+
+          const youtubeInput = new TextInputBuilder()
+            .setCustomId('youtube')
+            .setLabel('YouTube Link (Optional)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
+
+          const instaInput = new TextInputBuilder()
+            .setCustomId('instagram')
+            .setLabel('Instagram Link (Optional)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
+
+          const codeInput = new TextInputBuilder()
+            .setCustomId('code')
+            .setLabel('Creator Code (Optional)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
+
+          // Modal Komponenten als Array
+          modal.addComponents([
+            new ActionRowBuilder().addComponents(titleInput),
+            new ActionRowBuilder().addComponents(creatorIdInput),
+            new ActionRowBuilder().addComponents(twitchInput),
+            new ActionRowBuilder().addComponents(tiktokInput),
+            new ActionRowBuilder().addComponents(youtubeInput),
+            new ActionRowBuilder().addComponents(instaInput),
+            new ActionRowBuilder().addComponents(codeInput)
+          ]);
+
+          await interaction.showModal(modal);
+          return;
         }
-
-        await interaction.reply({ content: '⚠️ Kanal wird geleert...', ephemeral: false });
-        const messages = await interaction.channel.messages.fetch({ limit: 100 });
-        await interaction.channel.bulkDelete(messages, true);
-        await interaction.followUp({ content: '✅ Kanal erfolgreich geleert!', ephemeral: false });
-        return;
       }
 
-      // -------------------- /paypal --------------------
-      if (interaction.isCommand() && interaction.commandName === 'paypal') {
-        const allowedRoles = process.env.PAYPAL_ROLES?.split(',') || [];
-        const memberRoles = interaction.member.roles.cache.map(r => r.id);
+      // -------------------- /creator Modal Submit --------------------
+      if (interaction.isModalSubmit() && interaction.customId === 'creatorAddModal') {
+        const title = interaction.fields.getTextInputValue('title');
+        const creatorId = interaction.fields.getTextInputValue('creatorId');
+        const twitch = interaction.fields.getTextInputValue('twitch');
+        const tiktok = interaction.fields.getTextInputValue('tiktok') || '';
+        const youtube = interaction.fields.getTextInputValue('youtube') || '';
+        const instagram = interaction.fields.getTextInputValue('instagram') || '';
+        const code = interaction.fields.getTextInputValue('code') || '';
 
-        if (allowedRoles.length && !allowedRoles.some(r => memberRoles.includes(r))) {
-          return interaction.reply({ content: '❌ Du hast keine Berechtigung!', ephemeral: true });
+        const guild = interaction.guild;
+        if (!guild) return interaction.reply({ content: '❌ Guild nicht gefunden!', ephemeral: true });
+
+        // Rolle vergeben
+        const member = guild.members.cache.get(creatorId);
+        if (member) {
+          const role = guild.roles.cache.find(r => r.name === 'Creator');
+          if (role) await member.roles.add(role).catch(console.error);
         }
 
-        const amount = interaction.options.getNumber('betrag');
-        if (!amount || amount <= 0) return interaction.reply({ content: '⚠️ Bitte einen gültigen Betrag angeben!', ephemeral: true });
-
-        const paypalLink = `https://www.paypal.com/paypalme/jonahborospreitzer/${amount}`;
-
+        // Embed erstellen
         const embed = new EmbedBuilder()
-          .setTitle('💰 PayPal Zahlung')
-          .setDescription(`Klicke auf den Button, um **${amount}€** zu zahlen`)
-          .setColor('#0099ff')
-          .setFooter({ text: 'Kandar Community', iconURL: interaction.guild.iconURL({ dynamic: true }) })
+          .setTitle(title)
+          .setColor('#9b5de5')
+          .addFields({ name: 'Twitch', value: twitch })
           .setTimestamp();
 
-        const button = new ButtonBuilder()
-          .setLabel(`Jetzt ${amount}€ zahlen`)
-          .setStyle(ButtonStyle.Link)
-          .setURL(paypalLink);
+        if (tiktok) embed.addFields({ name: 'TikTok', value: tiktok });
+        if (youtube) embed.addFields({ name: 'YouTube', value: youtube });
+        if (instagram) embed.addFields({ name: 'Instagram', value: instagram });
+        if (code) embed.addFields({ name: 'Creator Code', value: code });
 
-        const row = new ActionRowBuilder().addComponents(button);
+        // Admin Buttons
+        const adminRow = new ActionRowBuilder().addComponents([
+          new ButtonBuilder()
+            .setCustomId('editCreator')
+            .setLabel('Bearbeiten')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId('deleteCreator')
+            .setLabel('Löschen')
+            .setStyle(ButtonStyle.Danger)
+        ]);
 
-        await interaction.reply({ embeds: [embed], components: [row] });
-        return;
+        // Social Link Buttons
+        const socialRow = new ActionRowBuilder();
+        if (twitch) socialRow.addComponents(new ButtonBuilder().setLabel('Twitch').setStyle(ButtonStyle.Link).setURL(twitch));
+        if (tiktok) socialRow.addComponents(new ButtonBuilder().setLabel('TikTok').setStyle(ButtonStyle.Link).setURL(tiktok));
+        if (youtube) socialRow.addComponents(new ButtonBuilder().setLabel('YouTube').setStyle(ButtonStyle.Link).setURL(youtube));
+        if (instagram) socialRow.addComponents(new ButtonBuilder().setLabel('Instagram').setStyle(ButtonStyle.Link).setURL(instagram));
+
+        const message = await interaction.reply({ embeds: [embed], components: [adminRow, socialRow], fetchReply: true });
+
+        // Creator speichern
+        const filePath = './data/creators.json';
+        const creators = fs.existsSync(filePath) ? JSON.parse(fs.readFileSync(filePath, 'utf8')) : [];
+        creators.push({
+          title,
+          creatorId,
+          twitch,
+          tiktok,
+          youtube,
+          instagram,
+          code,
+          messageId: message.id,
+          channelId: message.channel.id
+        });
+        fs.writeFileSync(filePath, JSON.stringify(creators, null, 2));
+
+        await interaction.followUp({ content: '✅ Creator erstellt und Rolle vergeben!', ephemeral: true });
       }
-
-      // -------------------- /verify --------------------
-      if (interaction.isCommand() && interaction.commandName === 'verify') {
-        const verifyChannelId = process.env.VERIFY_CHANNEL_ID;
-        const verifyRoleId = process.env.VERIFY_ROLE_ID;
-        const channel = interaction.guild.channels.cache.get(verifyChannelId);
-        if (!channel) return interaction.reply({ content: '❌ Verify Channel nicht gefunden!', ephemeral: true });
-
-        const embed = new EmbedBuilder()
-          .setTitle('📜 Regelwerk')
-          .setDescription(
-`§ 1: Umgang
-Ein freundlicher und respektvoller Umgang ist jederzeit Pflicht!
-§ 2: Anweisungen
-Den Anweisungen von Teammitgliedern ist stets Folge zu leisten!
-§ 3: Pingen
-Das grundlose Taggen/Pingen/Markieren von Nutzern & Benutzerrängen ist untersagt!
-§ 4: Leaking
-Das Teilen/Leaken von personenbezogenen Daten ist verboten!
-§ 5: Spam
-Spamming jeglicher Form ist in sämtlichen Textchannels verboten!
-§ 6: Channels
-Das Senden von Sachen in die dafür nicht vorgesehenen Channel ist verboten!
-§ 7: Das letzte Wort
-Teammitglieder haben das letzte Wort!
-§ 8: Beleidigungen
-Extremes Beleidigen im Chat ist Strengstens verboten!
-§ 10: Werbung
-Werbung für andere Discord-Server ist in allen Text- und Voicechannels, sowie auch über DM verboten!
-§ 11: NSFW-Inhalte
-Das Verbreiten von Videos und Bildern, welche Tierquälerei und Blutinhalte zeigen, ist verboten!
-§ 12: Drohung und Erpressung
-Das Drohen und Erpressen von Usern, beispielsweise mit einem Leak ist verboten!
-§ 13: Bots und Raids
-Das Verwenden von Bot-Accounts und Durchführen von Raids ist verboten!
-§ 14: Discord Rules
-Auf diesem Server gelten auch die allgemeinen Discord ToS sowie Discord Community-Richtlinien!`
-          )
-          .setColor('#00FF00')
-          .setFooter({ text: 'Kandar Community', iconURL: interaction.guild.iconURL({ dynamic: true }) });
-
-        const button = new ButtonBuilder()
-          .setCustomId('verify_role')
-          .setLabel('✅ Verifizieren')
-          .setStyle(ButtonStyle.Success);
-
-        const row = new ActionRowBuilder().addComponents(button);
-
-        await channel.send({ embeds: [embed], components: [row] });
-        await interaction.reply({ content: '✅ Verify-Nachricht gesendet!', ephemeral: true });
-        return;
-      }
-
-      // -------------------- /order --------------------
-      // Logik hier wird in order.js behandelt (Modular)
-      if (interaction.isCommand() && interaction.commandName === 'order') return;
-
-      // -------------------- /giveaway --------------------
-      // Logik hier wird in giveaway.js behandelt (Modular)
-      if (interaction.isCommand() && interaction.commandName === 'giveaway') return;
 
     } catch (error) {
-      console.error('Error bei Commands:', error);
-      if (!interaction.replied) await interaction.reply({ content: '❌ Es ist ein Fehler aufgetreten!', ephemeral: true });
+      console.error('Fehler bei Commands:', error);
+      if (!interaction.replied) await interaction.reply({ content: '❌ Fehler aufgetreten!', ephemeral: true });
     }
   });
 };
+
