@@ -18,7 +18,9 @@ import {
 import fs from "fs";
 import "dotenv/config";
 
-// === CLIENT ===
+/* ===========================
+   Client + Data Setup
+=========================== */
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -30,13 +32,18 @@ const client = new Client({
   ],
 });
 
-// === DATEN ===
+// /data Ordner & Dateien
 if (!fs.existsSync("./data")) fs.mkdirSync("./data");
 const GIVEAWAY_FILE = "./data/giveaways.json";
+const CREATORS_FILE = "./data/creators.json";
 if (!fs.existsSync(GIVEAWAY_FILE)) fs.writeFileSync(GIVEAWAY_FILE, "[]");
+if (!fs.existsSync(CREATORS_FILE)) fs.writeFileSync(CREATORS_FILE, "[]");
 
-// === SLASH COMMANDS ===
+/* ===========================
+   Slash Commands
+=========================== */
 const commands = [
+  // PayPal
   new SlashCommandBuilder()
     .setName("paypal")
     .setDescription("Erstellt einen PayPal-Zahlungslink")
@@ -44,19 +51,23 @@ const commands = [
       o.setName("betrag").setDescription("Betrag in Euro").setRequired(true)
     ),
 
+  // Tickets Panel
   new SlashCommandBuilder()
-    .setName("ticketmsg")
-    .setDescription("Sendet das Ticket-Panel"),
+    .setName("panel")
+    .setDescription("Sendet das Ticket-Panel (Dropdown)"),
 
+  // Verify
   new SlashCommandBuilder()
     .setName("verifymsg")
     .setDescription("Sendet die Verify-Nachricht"),
 
+  // Nuke
   new SlashCommandBuilder()
     .setName("nuke")
-    .setDescription("Löscht alle Nachrichten im Channel")
+    .setDescription("Löscht viele Nachrichten im aktuellen Channel")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
 
+  // Creator
   new SlashCommandBuilder()
     .setName("creator")
     .setDescription("Creator-System verwalten")
@@ -64,7 +75,7 @@ const commands = [
       sub.setName("add").setDescription("Erstellt ein Creator-Panel mit Social-Links")
     ),
 
-  // === GIVEAWAY ===
+  // Giveaways
   new SlashCommandBuilder()
     .setName("giveaway")
     .setDescription("Starte ein neues Giveaway")
@@ -74,16 +85,16 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("reroll")
-    .setDescription("Ziehe neue Gewinner")
-    .addStringOption(o => o.setName("msgid").setDescription("Nachrichten-ID").setRequired(true)),
+    .setDescription("Ziehe neue Gewinner für ein Giveaway")
+    .addStringOption(o => o.setName("msgid").setDescription("Nachrichten-ID des Giveaways").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("end")
-    .setDescription("Beende ein Giveaway")
-    .addStringOption(o => o.setName("msgid").setDescription("Nachrichten-ID").setRequired(true))
+    .setDescription("Beende ein Giveaway vorzeitig")
+    .addStringOption(o => o.setName("msgid").setDescription("Nachrichten-ID des Giveaways").setRequired(true)),
 ].map(c => c.toJSON());
 
-// === COMMANDS REGISTRIEREN ===
+// Commands registrieren
 const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
 (async () => {
   try {
@@ -97,31 +108,32 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
   }
 })();
 
-// === GIVEAWAY HILFSFUNKTIONEN ===
+/* ===========================
+   Utils (Giveaway)
+=========================== */
 function parseDuration(str) {
-  const regex = /(\d+d)?(\d+h)?(\d+m)?/;
-  const match = str.match(regex);
-  if (!match) return null;
+  if (!str) return 0;
+  const m = String(str).toLowerCase().match(/^(\d+d)?(\d+h)?(\d+m)?$/);
+  if (!m) return 0;
   let ms = 0;
-  if (match[1]) ms += parseInt(match[1]) * 86400000;
-  if (match[2]) ms += parseInt(match[2]) * 3600000;
-  if (match[3]) ms += parseInt(match[3]) * 60000;
+  if (m[1]) ms += parseInt(m[1]) * 86400000;
+  if (m[2]) ms += parseInt(m[2]) * 3600000;
+  if (m[3]) ms += parseInt(m[3]) * 60000;
   return ms;
 }
-function loadGiveaways() {
-  return JSON.parse(fs.readFileSync(GIVEAWAY_FILE, "utf8"));
-}
-function saveGiveaways(data) {
-  fs.writeFileSync(GIVEAWAY_FILE, JSON.stringify(data, null, 2));
-}
+const loadGiveaways = () => JSON.parse(fs.readFileSync(GIVEAWAY_FILE, "utf8"));
+const saveGiveaways = (arr) => fs.writeFileSync(GIVEAWAY_FILE, JSON.stringify(arr, null, 2));
 
-// === READY EVENT ===
+/* ===========================
+   Ready: Server Stats + Re-Arm Giveaways
+=========================== */
 client.once("ready", async () => {
   console.log(`🤖 Eingeloggt als ${client.user.tag}`);
+
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
   if (!guild) return;
 
-  // Server-Stats-Kategorie
+  // Server Stats Kategorie + Channels
   const categoryName = "📊 Server Stats";
   let category = guild.channels.cache.find(c => c.name === categoryName && c.type === ChannelType.GuildCategory);
   if (!category)
@@ -134,7 +146,7 @@ client.once("ready", async () => {
     boosts: "💎 Boosts"
   };
 
-  for (const [_, name] of Object.entries(stats)) {
+  for (const name of Object.values(stats)) {
     if (!guild.channels.cache.find(c => c.parentId === category.id && c.name.startsWith(name))) {
       await guild.channels.create({
         name: `${name}: 0`,
@@ -166,19 +178,22 @@ client.once("ready", async () => {
   }
   updateStats();
   setInterval(updateStats, 5 * 60 * 1000);
-  console.log("📊 Server Stats aktiv!");
 
   // offene Giveaways reaktivieren
   const giveaways = loadGiveaways();
   for (const g of giveaways.filter(x => !x.beendet)) {
     const rest = g.endZeit - Date.now();
-    if (rest <= 0) endGiveaway(g.messageId);
-    else setTimeout(() => endGiveaway(g.messageId), rest);
+    if (rest <= 0) endGiveaway(g.messageId).catch(() => {});
+    else setTimeout(() => endGiveaway(g.messageId).catch(() => {}), rest);
   }
-  console.log(`🎉 ${giveaways.filter(x => !x.beendet).length} Giveaways reaktiviert.`);
+  console.log(`🎉 Reaktivierte Giveaways: ${giveaways.filter(x => !x.beendet).length}`);
 });
 
-// === WELCOME EMBED ===
+/* ===========================
+   Welcome + Booster Embeds
+=========================== */
+const BANNER_URL = "https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif";
+
 client.on("guildMemberAdd", async (member) => {
   const ch = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
   if (!ch) return;
@@ -186,13 +201,12 @@ client.on("guildMemberAdd", async (member) => {
     .setColor("#00FF00")
     .setTitle("👋 Willkommen auf dem Server!")
     .setDescription(`Willkommen ${member}, schön, dass du da bist! 🎉`)
-    .setImage("https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif")
+    .setImage(BANNER_URL)
     .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
     .setTimestamp();
   ch.send({ embeds: [embed] });
 });
 
-// === BOOSTER EMBED ===
 client.on("guildMemberUpdate", async (oldM, newM) => {
   if (oldM.premiumSince === newM.premiumSince) return;
   if (!newM.premiumSince) return;
@@ -202,14 +216,309 @@ client.on("guildMemberUpdate", async (oldM, newM) => {
     .setColor("#FF00FF")
     .setTitle("💎 Neuer Server-Boost!")
     .setDescription(`Vielen Dank ${newM} fürs Boosten des Servers! 🚀💖`)
-    .setImage("https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif")
+    .setImage(BANNER_URL)
     .setTimestamp();
   ch.send({ embeds: [embed] });
 });
 
-// === GIVEAWAY HANDLER ===
+/* ===========================
+   Interaction Handler (alles in einem Listener)
+=========================== */
 client.on("interactionCreate", async (i) => {
   try {
+    /* ---- VERIFY PANEL + BUTTON ---- */
+    if (i.isChatInputCommand() && i.commandName === "verifymsg") {
+      const embed = new EmbedBuilder()
+        .setColor("#00FF00")
+        .setTitle("✅ Verifizierung")
+        .setDescription("Drücke unten auf **Verifizieren**, um Zugriff auf den Server zu erhalten!")
+        .setImage(BANNER_URL);
+
+      const button = new ButtonBuilder()
+        .setCustomId("verify_button")
+        .setLabel("Verifizieren")
+        .setStyle(ButtonStyle.Success);
+
+      return i.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(button)] });
+    }
+
+    if (i.isButton() && i.customId === "verify_button") {
+      const role = i.guild.roles.cache.get(process.env.VERIFY_ROLE_ID);
+      if (!role) return i.reply({ content: "❌ Verify-Rolle nicht gefunden!", ephemeral: true });
+      if (i.member.roles.cache.has(role.id))
+        return i.reply({ content: "✅ Du bist bereits verifiziert!", ephemeral: true });
+
+      await i.member.roles.add(role);
+      return i.reply({ content: "🎉 Du bist jetzt verifiziert!", ephemeral: true });
+    }
+
+    /* ---- PAYPAL ---- */
+    if (i.isChatInputCommand() && i.commandName === "paypal") {
+      const amount = i.options.getNumber("betrag");
+      if (!amount || amount <= 0)
+        return i.reply({ content: "⚠️ Ungültiger Betrag!", ephemeral: true });
+
+      const link = `https://www.paypal.com/paypalme/jonahborospreitzer/${amount}`;
+      const embed = new EmbedBuilder()
+        .setColor("#0099ff")
+        .setTitle("💰 PayPal Zahlung")
+        .setDescription(`Klicke auf den Button, um **${amount}€** zu zahlen.`)
+        .setFooter({ text: "Kandar Community" });
+      const btn = new ButtonBuilder().setLabel(`Jetzt ${amount}€ zahlen`).setStyle(ButtonStyle.Link).setURL(link);
+      return i.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(btn)] });
+    }
+
+    /* ---- TICKET PANEL /panel ---- */
+    if (i.isChatInputCommand() && i.commandName === "panel") {
+      const embed = new EmbedBuilder()
+        .setColor("#00FF00")
+        .setTitle("🎟 Support & Bewerbungen")
+        .setDescription(
+          `Bitte wähle unten die Art deines Tickets aus:\n\n` +
+          `💰 **Shop Ticket** – Käufe & Bestellungen\n` +
+          `🎥 **Streamer Bewerbung** – Bewirb dich als Creator\n` +
+          `✍️ **Kandar Bewerbung** – Allgemeine Bewerbung\n` +
+          `🎨 **Designer Bewerbung** – Für Grafiker\n` +
+          `✂️ **Cutter Bewerbung** – Für Videoeditoren\n` +
+          `🛠️ **Highteam Anliegen** – Interne Anliegen`
+        )
+        .setImage(BANNER_URL);
+
+      const menu = new StringSelectMenuBuilder()
+        .setCustomId("ticket_select")
+        .setPlaceholder("Wähle eine Ticket-Art")
+        .addOptions([
+          { label: "Shop Ticket", value: "shop", emoji: "💰" },
+          { label: "Streamer Bewerbung", value: "streamer", emoji: "🎥" },
+          { label: "Kandar Bewerbung", value: "kandar", emoji: "✍️" },
+          { label: "Designer Bewerbung", value: "designer", emoji: "🎨" },
+          { label: "Cutter Bewerbung", value: "cutter", emoji: "✂️" },
+          { label: "Highteam Anliegen", value: "highteam", emoji: "🛠️" },
+        ]);
+
+      return i.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(menu)] });
+    }
+
+    // Dropdown -> ggf. Modals/Channel erstellen
+    if (i.isStringSelectMenu() && i.customId === "ticket_select") {
+      const choice = i.values[0];
+
+      // SHOP: Modal
+      if (choice === "shop") {
+        const modal = new ModalBuilder()
+          .setCustomId("shopTicketModal")
+          .setTitle("💰 Shop Ticket erstellen");
+
+        const payment = new TextInputBuilder()
+          .setCustomId("payment")
+          .setLabel("Zahlungsmethode (z.B. PayPal, Überweisung)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const item = new TextInputBuilder()
+          .setCustomId("item")
+          .setLabel("Artikel / Produktname")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(payment),
+          new ActionRowBuilder().addComponents(item)
+        );
+        return i.showModal(modal);
+      }
+
+      // STREAMER: Modal
+      if (choice === "streamer") {
+        const modal = new ModalBuilder()
+          .setCustomId("streamerTicketModal")
+          .setTitle("🎥 Streamer Bewerbung");
+
+        const follower = new TextInputBuilder()
+          .setCustomId("follower")
+          .setLabel("Follower (z.B. 1200)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const avgViewer = new TextInputBuilder()
+          .setCustomId("avg_viewer")
+          .setLabel("Durchschnittliche Viewer")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const twitch = new TextInputBuilder()
+          .setCustomId("twitch_link")
+          .setLabel("Twitch-Link")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(follower),
+          new ActionRowBuilder().addComponents(avgViewer),
+          new ActionRowBuilder().addComponents(twitch)
+        );
+        return i.showModal(modal);
+      }
+
+      // Andere Kategorien: Direkt Channel
+      const map = {
+        kandar: { title: "✍️ Kandar Bewerbung", cat: "✍️ Kandar Bewerbungen", desc: "Bitte schreibe deine Bewerbung hier." },
+        designer: { title: "🎨 Designer Bewerbung", cat: "🎨 Designer Bewerbungen", desc: "Bitte sende dein Portfolio." },
+        cutter: { title: "✂️ Cutter Bewerbung", cat: "✂️ Cutter Bewerbungen", desc: "Bitte nenne Software & Erfahrung." },
+        highteam: { title: "🛠️ Highteam Ticket", cat: "🛠️ Highteam Anliegen", desc: "Beschreibe bitte dein Anliegen." },
+      };
+      const data = map[choice];
+      if (!data) return;
+
+      const guild = i.guild;
+      let cat = guild.channels.cache.find(c => c.name === data.cat && c.type === ChannelType.GuildCategory);
+      if (!cat) cat = await guild.channels.create({ name: data.cat, type: ChannelType.GuildCategory });
+
+      const ch = await guild.channels.create({
+        name: `${data.title.split(" ")[0]}-${i.user.username}`,
+        type: ChannelType.GuildText,
+        parent: cat.id,
+        permissionOverwrites: [
+          { id: guild.roles.everyone.id, deny: ["ViewChannel"] },
+          { id: i.user.id, allow: ["ViewChannel", "SendMessages", "ReadMessageHistory"] },
+        ],
+      });
+
+      const embed = new EmbedBuilder().setColor("#00FF00").setTitle(data.title).setDescription(data.desc);
+      await ch.send({ content: `${i.user}`, embeds: [embed] });
+      return i.reply({ content: `✅ Ticket erstellt: ${ch}`, ephemeral: true });
+    }
+
+    // SHOP Modal Submit
+    if (i.isModalSubmit() && i.customId === "shopTicketModal") {
+      const payment = i.fields.getTextInputValue("payment");
+      const item = i.fields.getTextInputValue("item");
+      const guild = i.guild;
+
+      const catName = "💰 Shop Tickets";
+      let cat = guild.channels.cache.find(c => c.name === catName && c.type === ChannelType.GuildCategory);
+      if (!cat) cat = await guild.channels.create({ name: catName, type: ChannelType.GuildCategory });
+
+      const ch = await guild.channels.create({
+        name: `💰-${i.user.username}`,
+        type: ChannelType.GuildText,
+        parent: cat.id,
+        permissionOverwrites: [
+          { id: guild.roles.everyone.id, deny: ["ViewChannel"] },
+          { id: i.user.id, allow: ["ViewChannel", "SendMessages", "ReadMessageHistory"] },
+        ],
+      });
+
+      const embed = new EmbedBuilder()
+        .setColor("#00FF00")
+        .setTitle("💰 Shop Ticket")
+        .setDescription(`🧾 **Zahlungsmethode:** ${payment}\n📦 **Artikel:** ${item}`)
+        .setFooter({ text: "Bitte beschreibe dein Anliegen genauer." });
+
+      await ch.send({ content: `${i.user}`, embeds: [embed] });
+      return i.reply({ content: `✅ Shop Ticket erstellt: ${ch}`, ephemeral: true });
+    }
+
+    // STREAMER Modal Submit
+    if (i.isModalSubmit() && i.customId === "streamerTicketModal") {
+      const follower = i.fields.getTextInputValue("follower");
+      const avgViewer = i.fields.getTextInputValue("avg_viewer");
+      const twitch = i.fields.getTextInputValue("twitch_link");
+      const guild = i.guild;
+
+      const catName = "🎥 Streamer Bewerbungen";
+      let cat = guild.channels.cache.find(c => c.name === catName && c.type === ChannelType.GuildCategory);
+      if (!cat) cat = await guild.channels.create({ name: catName, type: ChannelType.GuildCategory });
+
+      const ch = await guild.channels.create({
+        name: `🎥-${i.user.username}`,
+        type: ChannelType.GuildText,
+        parent: cat.id,
+        permissionOverwrites: [
+          { id: guild.roles.everyone.id, deny: ["ViewChannel"] },
+          { id: i.user.id, allow: ["ViewChannel", "SendMessages", "ReadMessageHistory"] },
+        ],
+      });
+
+      const embed = new EmbedBuilder()
+        .setColor("#00FF88")
+        .setTitle("🎥 Streamer Bewerbung")
+        .setDescription(`👤 **Follower:** ${follower}\n📈 **Average Viewer:** ${avgViewer}\n🔗 **Twitch:** ${twitch}`)
+        .setFooter({ text: "Bitte warte auf eine Rückmeldung vom Team." });
+
+      await ch.send({ content: `${i.user}`, embeds: [embed] });
+      return i.reply({ content: `✅ Streamer Bewerbung erstellt: ${ch}`, ephemeral: true });
+    }
+
+    /* ---- CREATOR ADD ---- */
+    if (i.isChatInputCommand() && i.commandName === "creator" && i.options.getSubcommand() === "add") {
+      const modal = new ModalBuilder().setCustomId("creatorAddModal").setTitle("Creator hinzufügen");
+      const fields = [
+        { id: "title", label: "Titel des Embeds", style: TextInputStyle.Short, req: true },
+        { id: "creatorId", label: "Discord-ID des Creators", style: TextInputStyle.Short, req: true },
+        { id: "twitch", label: "Twitch Link", style: TextInputStyle.Short, req: true },
+        { id: "youtube", label: "YouTube Link (Optional)", style: TextInputStyle.Short, req: false },
+        { id: "tiktok", label: "TikTok Link (Optional)", style: TextInputStyle.Short, req: false },
+        { id: "instagram", label: "Instagram Link (Optional)", style: TextInputStyle.Short, req: false },
+        { id: "code", label: "Creator Code (Optional)", style: TextInputStyle.Short, req: false },
+      ];
+      modal.addComponents(fields.map(f =>
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId(f.id).setLabel(f.label).setStyle(f.style).setRequired(f.req)
+        )
+      ));
+      return i.showModal(modal);
+    }
+
+    if (i.isModalSubmit() && i.customId === "creatorAddModal") {
+      const guild = i.guild;
+      const title = i.fields.getTextInputValue("title");
+      const creatorId = i.fields.getTextInputValue("creatorId");
+      const twitch = i.fields.getTextInputValue("twitch");
+      const youtube = i.fields.getTextInputValue("youtube") || "";
+      const tiktok = i.fields.getTextInputValue("tiktok") || "";
+      const instagram = i.fields.getTextInputValue("instagram") || "";
+      const code = i.fields.getTextInputValue("code") || "";
+
+      const member = guild.members.cache.get(creatorId);
+      if (member) {
+        const role = guild.roles.cache.find(r => r.name.toLowerCase() === "creator");
+        if (role) await member.roles.add(role).catch(() => null);
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor("#9b5de5")
+        .setTitle(title)
+        .addFields({ name: "Twitch", value: twitch });
+      if (youtube) embed.addFields({ name: "YouTube", value: youtube });
+      if (tiktok) embed.addFields({ name: "TikTok", value: tiktok });
+      if (instagram) embed.addFields({ name: "Instagram", value: instagram });
+      if (code) embed.addFields({ name: "Creator Code", value: code });
+
+      const msg = await i.reply({ embeds: [embed], fetchReply: true });
+      const arr = JSON.parse(fs.readFileSync(CREATORS_FILE, "utf8"));
+      arr.push({ title, creatorId, twitch, youtube, tiktok, instagram, code, messageId: msg.id, channelId: msg.channel.id });
+      fs.writeFileSync(CREATORS_FILE, JSON.stringify(arr, null, 2));
+      return i.followUp({ content: "✅ Creator erstellt!", ephemeral: true });
+    }
+
+    /* ---- NUKE ---- */
+    if (i.isChatInputCommand() && i.commandName === "nuke") {
+      const ch = i.channel;
+      await i.reply({ content: "⚠️ Channel wird geleert...", ephemeral: true });
+      try {
+        let msgs;
+        do {
+          msgs = await ch.messages.fetch({ limit: 100 });
+          await ch.bulkDelete(msgs, true);
+        } while (msgs.size >= 2);
+        await ch.send("✅ Channel erfolgreich genukt!");
+      } catch {
+        await ch.send("❌ Fehler beim Löschen (Hinweis: Nachrichten >14 Tage können nicht gelöscht werden).");
+      }
+    }
+
+    /* ---- GIVEAWAY ---- */
     if (i.isChatInputCommand() && i.commandName === "giveaway") {
       const preis = i.options.getString("preis");
       const dauerStr = i.options.getString("dauer");
@@ -227,7 +536,7 @@ client.on("interactionCreate", async (i) => {
         .setColor("#9B5DE5")
         .setTitle("🎉 Neues Giveaway 🎉")
         .setDescription(`**Preis:** ${preis}\n🎁 **Gewinner:** ${gewinner}\n⏰ **Endet in:** ${dauerStr}\n\nKlicke unten, um teilzunehmen!`)
-        .setImage("https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif")
+        .setImage(BANNER_URL)
         .setTimestamp(new Date(endZeit))
         .setFooter({ text: "Endet automatisch" });
 
@@ -254,7 +563,7 @@ client.on("interactionCreate", async (i) => {
         beendet: false,
       });
       saveGiveaways(giveaways);
-      setTimeout(() => endGiveaway(msg.id), dauer);
+      setTimeout(() => endGiveaway(msg.id).catch(() => {}), dauer);
     }
 
     if (i.isButton() && i.customId === "giveaway_join") {
@@ -264,6 +573,7 @@ client.on("interactionCreate", async (i) => {
       if (g.beendet) return i.reply({ content: "🚫 Dieses Giveaway ist beendet!", ephemeral: true });
       if (g.teilnehmer.includes(i.user.id))
         return i.reply({ content: "⚠️ Du bist bereits dabei!", ephemeral: true });
+
       g.teilnehmer.push(i.user.id);
       saveGiveaways(giveaways);
       return i.reply({ content: "✅ Teilnahme gespeichert!", ephemeral: true });
@@ -274,19 +584,23 @@ client.on("interactionCreate", async (i) => {
       const g = loadGiveaways().find(x => x.messageId === msgid);
       if (!g) return i.reply({ content: "❌ Giveaway nicht gefunden!", ephemeral: true });
       if (!g.teilnehmer.length) return i.reply({ content: "😢 Keine Teilnehmer!", ephemeral: true });
+
       const winners = Array.from({ length: g.gewinner }, () => `<@${g.teilnehmer[Math.floor(Math.random() * g.teilnehmer.length)]}>`);
-      i.reply(`🔁 Neue Gewinner für **${g.preis}**: ${winners.join(", ")}`);
+      return i.reply(`🔁 Neue Gewinner für **${g.preis}**: ${winners.join(", ")}`);
     }
 
     if (i.isChatInputCommand() && i.commandName === "end") {
       await endGiveaway(i.options.getString("msgid"), i);
     }
+
   } catch (err) {
-    console.error("❌ Fehler:", err);
+    console.error("❌ Interaktionsfehler:", err);
   }
 });
 
-// === GIVEAWAY ENDE ===
+/* ===========================
+   Giveaway beenden (shared)
+=========================== */
 async function endGiveaway(msgid, interaction = null) {
   const giveaways = loadGiveaways();
   const g = giveaways.find(x => x.messageId === msgid);
@@ -303,9 +617,10 @@ async function endGiveaway(msgid, interaction = null) {
       const embed = EmbedBuilder.from(msg.embeds[0])
         .setColor("#808080")
         .setDescription(`**Preis:** ${g.preis}\n❌ Keine Teilnehmer 😢`)
-        .setFooter({ text: "Beendet" });
+        .setFooter({ text: "Giveaway beendet" });
       await msg.edit({ embeds: [embed], components: [] });
-      return interaction?.reply({ content: "❌ Keine Teilnehmer.", ephemeral: true });
+      if (interaction) await interaction.reply({ content: "❌ Keine Teilnehmer. Giveaway beendet.", ephemeral: true });
+      return;
     }
 
     const winners = Array.from({ length: g.gewinner }, () => `<@${g.teilnehmer[Math.floor(Math.random() * g.teilnehmer.length)]}>`);
@@ -313,14 +628,19 @@ async function endGiveaway(msgid, interaction = null) {
       .setColor("#9B5DE5")
       .setDescription(`**Preis:** ${g.preis}\n🏆 Gewinner: ${winners.join(", ")}`)
       .setFooter({ text: "Giveaway beendet" });
+
     await msg.edit({ embeds: [embed], components: [] });
     await ch.send(`🎉 Glückwunsch ${winners.join(", ")}! Ihr habt **${g.preis}** gewonnen!`);
+    if (interaction) await interaction.reply({ content: "✅ Giveaway beendet!", ephemeral: true });
   } catch (err) {
-    console.error("❌ Fehler beim Ende:", err);
+    console.error("❌ Fehler beim Beenden des Giveaways:", err);
   }
 }
 
-// === LOGGING SYSTEM ===
+/* ===========================
+   Logging System
+=========================== */
+// Member
 client.on("guildMemberAdd", m => {
   const log = m.guild.channels.cache.get(process.env.MEMBER_LOGS_CHANNEL_ID);
   if (log)
@@ -331,12 +651,16 @@ client.on("guildMemberRemove", m => {
   if (log)
     log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🚪 Mitglied hat verlassen").setDescription(`${m.user.tag} hat den Server verlassen.`)] });
 });
+
+// Message (gelöscht)
 client.on("messageDelete", msg => {
   if (!msg.guild || msg.author?.bot) return;
   const log = msg.guild.channels.cache.get(process.env.MESSAGE_LOGS_CHANNEL_ID);
   if (log)
     log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🗑 Nachricht gelöscht").setDescription(`Von ${msg.author}\nIn ${msg.channel}\n\n${msg.content || "[Embed/Datei]"}`)] });
 });
+
+// Channel
 client.on("channelCreate", ch => {
   const log = ch.guild.channels.cache.get(process.env.CHANNEL_LOGS_CHANNEL_ID);
   if (log)
@@ -347,6 +671,8 @@ client.on("channelDelete", ch => {
   if (log)
     log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🗑 Channel gelöscht").setDescription(`${ch.name}`)] });
 });
+
+// Role
 client.on("roleCreate", r => {
   const log = r.guild.channels.cache.get(process.env.ROLE_LOGS_CHANNEL_ID);
   if (log)
@@ -357,6 +683,8 @@ client.on("roleDelete", r => {
   if (log)
     log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🎭 Rolle gelöscht").setDescription(`${r.name}`)] });
 });
+
+// Voice
 client.on("voiceStateUpdate", (o, n) => {
   const log = n.guild.channels.cache.get(process.env.VOICE_LOGS_CHANNEL_ID);
   if (!log) return;
@@ -367,40 +695,9 @@ client.on("voiceStateUpdate", (o, n) => {
   else if (o.channelId !== n.channelId) desc = `🔁 ${user} wechselte von **${o.channel.name}** zu **${n.channel.name}**.`;
   if (desc) log.send({ embeds: [new EmbedBuilder().setColor("#00A8FF").setTitle("🔊 Voice Log").setDescription(desc)] });
 });
-// === VERIFY SYSTEM ===
-client.on("interactionCreate", async (i) => {
-  // /verifymsg Command
-  if (i.isChatInputCommand() && i.commandName === "verifymsg") {
-    const embed = new EmbedBuilder()
-      .setColor("#00FF00")
-      .setTitle("✅ Verifizierung")
-      .setDescription("Drücke unten auf **Verifizieren**, um Zugriff auf den Server zu erhalten!")
-      .setImage("https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif");
 
-    const button = new ButtonBuilder()
-      .setCustomId("verify_button")
-      .setLabel("Verifizieren")
-      .setStyle(ButtonStyle.Success);
-
-    const row = new ActionRowBuilder().addComponents(button);
-    return i.reply({ embeds: [embed], components: [row] });
-  }
-
-  // Button-Interaktion
-  if (i.isButton() && i.customId === "verify_button") {
-    const role = i.guild.roles.cache.get(process.env.VERIFY_ROLE_ID);
-    if (!role) return i.reply({ content: "❌ Verify-Rolle nicht gefunden!", ephemeral: true });
-
-    if (i.member.roles.cache.has(role.id)) {
-      return i.reply({ content: "✅ Du bist bereits verifiziert!", ephemeral: true });
-    }
-
-    await i.member.roles.add(role);
-    return i.reply({ content: "🎉 Du bist jetzt verifiziert!", ephemeral: true });
-  }
-});
-
-// === LOGIN ===
+/* ===========================
+   Login
+=========================== */
 client.login(process.env.DISCORD_TOKEN);
-
 
