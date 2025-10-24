@@ -2,7 +2,7 @@ import { Client, GatewayIntentBits } from 'discord.js';
 import 'dotenv/config';
 import express from 'express';
 
-// Module importieren
+// Module importieren (Pfad anpassen!)
 import welcome from './welcome.js';
 import tickets from './tickets.js';
 import paypal from './paypal.js';
@@ -11,6 +11,7 @@ import verify from './verify.js';
 import twitch from './twitch.js';
 import order from './order.js';
 import nuke from './nuke.js';
+import creator from './creator.js';
 import startStats from './stats.js'; // <-- stats.js importieren
 
 // === Client erstellen ===
@@ -37,14 +38,16 @@ verify(client);
 twitch(client);
 order(client);
 nuke(client);
+creator(client); // <-- Creator Modul laden
 
 // === Stats starten ===
-startStats(client); // <-- stats.js mit dem Client starten
+startStats(client);
 
 // === Bot Login ===
 client.login(process.env.DISCORD_TOKEN)
   .then(() => console.log('🤖 Bot erfolgreich eingeloggt!'))
   .catch(err => console.error('❌ Bot Login fehlgeschlagen:', err));
+
 
 
 
