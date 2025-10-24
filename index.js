@@ -18,7 +18,7 @@ import {
 import fs from "fs";
 import "dotenv/config";
 
-// === Client ===
+// === CLIENT ===
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -30,16 +30,19 @@ const client = new Client({
   ],
 });
 
-// === Files ===
-const GIVEAWAY_FILE = "./data/giveaways.json";
+// === DATEN ===
 if (!fs.existsSync("./data")) fs.mkdirSync("./data");
+const GIVEAWAY_FILE = "./data/giveaways.json";
+if (!fs.existsSync(GIVEAWAY_FILE)) fs.writeFileSync(GIVEAWAY_FILE, "[]");
 
-// === Slash Commands ===
+// === SLASH COMMANDS ===
 const commands = [
   new SlashCommandBuilder()
     .setName("paypal")
     .setDescription("Erstellt einen PayPal-Zahlungslink")
-    .addNumberOption(o => o.setName("betrag").setDescription("Betrag in Euro").setRequired(true)),
+    .addNumberOption(o =>
+      o.setName("betrag").setDescription("Betrag in Euro").setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName("ticketmsg")
@@ -61,26 +64,26 @@ const commands = [
       sub.setName("add").setDescription("Erstellt ein Creator-Panel mit Social-Links")
     ),
 
-  // === Giveaway Commands ===
+  // === GIVEAWAY ===
   new SlashCommandBuilder()
     .setName("giveaway")
     .setDescription("Starte ein neues Giveaway")
-    .addStringOption(o => o.setName("preis").setDescription("Preis des Giveaways").setRequired(true))
-    .addStringOption(o => o.setName("dauer").setDescription("Dauer (z. B. 1d, 2h, 30m)").setRequired(true))
+    .addStringOption(o => o.setName("preis").setDescription("Preis").setRequired(true))
+    .addStringOption(o => o.setName("dauer").setDescription("z. B. 1d, 2h, 30m").setRequired(true))
     .addIntegerOption(o => o.setName("gewinner").setDescription("Anzahl der Gewinner").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("reroll")
-    .setDescription("Wähle einen neuen Gewinner")
-    .addStringOption(o => o.setName("msgid").setDescription("Nachrichten-ID des Giveaways").setRequired(true)),
+    .setDescription("Ziehe neue Gewinner")
+    .addStringOption(o => o.setName("msgid").setDescription("Nachrichten-ID").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("end")
-    .setDescription("Beende ein Giveaway vorzeitig")
-    .addStringOption(o => o.setName("msgid").setDescription("Nachrichten-ID des Giveaways").setRequired(true))
+    .setDescription("Beende ein Giveaway")
+    .addStringOption(o => o.setName("msgid").setDescription("Nachrichten-ID").setRequired(true))
 ].map(c => c.toJSON());
 
-// === Commands registrieren ===
+// === COMMANDS REGISTRIEREN ===
 const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
 (async () => {
   try {
@@ -94,7 +97,7 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
   }
 })();
 
-// === Helper ===
+// === GIVEAWAY HILFSFUNKTIONEN ===
 function parseDuration(str) {
   const regex = /(\d+d)?(\d+h)?(\d+m)?/;
   const match = str.match(regex);
@@ -106,21 +109,19 @@ function parseDuration(str) {
   return ms;
 }
 function loadGiveaways() {
-  if (!fs.existsSync(GIVEAWAY_FILE)) return [];
   return JSON.parse(fs.readFileSync(GIVEAWAY_FILE, "utf8"));
 }
 function saveGiveaways(data) {
   fs.writeFileSync(GIVEAWAY_FILE, JSON.stringify(data, null, 2));
 }
 
-// === Ready ===
+// === READY EVENT ===
 client.once("ready", async () => {
   console.log(`🤖 Eingeloggt als ${client.user.tag}`);
-
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
   if (!guild) return;
 
-  // === Server Stats Kategorie ===
+  // Server-Stats-Kategorie
   const categoryName = "📊 Server Stats";
   let category = guild.channels.cache.find(c => c.name === categoryName && c.type === ChannelType.GuildCategory);
   if (!category)
@@ -163,13 +164,21 @@ client.once("ready", async () => {
     if (channels.bots) await channels.bots.setName(`${stats.bots}: ${bots}`);
     if (channels.boosts) await channels.boosts.setName(`${stats.boosts}: ${boosts}`);
   }
-
   updateStats();
   setInterval(updateStats, 5 * 60 * 1000);
   console.log("📊 Server Stats aktiv!");
+
+  // offene Giveaways reaktivieren
+  const giveaways = loadGiveaways();
+  for (const g of giveaways.filter(x => !x.beendet)) {
+    const rest = g.endZeit - Date.now();
+    if (rest <= 0) endGiveaway(g.messageId);
+    else setTimeout(() => endGiveaway(g.messageId), rest);
+  }
+  console.log(`🎉 ${giveaways.filter(x => !x.beendet).length} Giveaways reaktiviert.`);
 });
 
-// === Welcome ===
+// === WELCOME EMBED ===
 client.on("guildMemberAdd", async (member) => {
   const ch = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
   if (!ch) return;
@@ -183,7 +192,7 @@ client.on("guildMemberAdd", async (member) => {
   ch.send({ embeds: [embed] });
 });
 
-// === Booster ===
+// === BOOSTER EMBED ===
 client.on("guildMemberUpdate", async (oldM, newM) => {
   if (oldM.premiumSince === newM.premiumSince) return;
   if (!newM.premiumSince) return;
@@ -198,29 +207,26 @@ client.on("guildMemberUpdate", async (oldM, newM) => {
   ch.send({ embeds: [embed] });
 });
 
-// === Interactions ===
+// === GIVEAWAY HANDLER ===
 client.on("interactionCreate", async (i) => {
   try {
-    // === GIVEAWAY ===
     if (i.isChatInputCommand() && i.commandName === "giveaway") {
       const preis = i.options.getString("preis");
       const dauerStr = i.options.getString("dauer");
       const gewinner = i.options.getInteger("gewinner");
       if (!gewinner || gewinner < 1)
-        return i.reply({ content: "⚠️ Du musst angeben, wie viele Gewinner es geben soll!", ephemeral: true });
+        return i.reply({ content: "⚠️ Bitte gib eine gültige Gewinneranzahl an!", ephemeral: true });
 
       const dauer = parseDuration(dauerStr);
       if (!dauer || dauer <= 0)
-        return i.reply({ content: "⚠️ Ungültige Zeitangabe! Beispiel: 1d2h30m", ephemeral: true });
+        return i.reply({ content: "⚠️ Ungültige Dauer (z. B. 1d2h30m)", ephemeral: true });
 
       const endZeit = Date.now() + dauer;
 
       const embed = new EmbedBuilder()
         .setColor("#9B5DE5")
         .setTitle("🎉 Neues Giveaway 🎉")
-        .setDescription(
-          `**Preis:** ${preis}\n🎁 **Gewinner:** ${gewinner}\n⏰ **Endet in:** ${dauerStr}\n\nDrücke auf den Button, um teilzunehmen!`
-        )
+        .setDescription(`**Preis:** ${preis}\n🎁 **Gewinner:** ${gewinner}\n⏰ **Endet in:** ${dauerStr}\n\nKlicke unten, um teilzunehmen!`)
         .setImage("https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif")
         .setTimestamp(new Date(endZeit))
         .setFooter({ text: "Endet automatisch" });
@@ -248,124 +254,108 @@ client.on("interactionCreate", async (i) => {
         beendet: false,
       });
       saveGiveaways(giveaways);
-
       setTimeout(() => endGiveaway(msg.id), dauer);
     }
 
     if (i.isButton() && i.customId === "giveaway_join") {
       const giveaways = loadGiveaways();
       const g = giveaways.find(x => x.messageId === i.message.id);
-      if (!g) return i.reply({ content: "❌ Giveaway nicht gefunden.", ephemeral: true });
-      if (g.beendet) return i.reply({ content: "🚫 Dieses Giveaway ist beendet.", ephemeral: true });
+      if (!g) return i.reply({ content: "❌ Giveaway nicht gefunden!", ephemeral: true });
+      if (g.beendet) return i.reply({ content: "🚫 Dieses Giveaway ist beendet!", ephemeral: true });
       if (g.teilnehmer.includes(i.user.id))
-        return i.reply({ content: "⚠️ Du nimmst bereits teil!", ephemeral: true });
-
+        return i.reply({ content: "⚠️ Du bist bereits dabei!", ephemeral: true });
       g.teilnehmer.push(i.user.id);
       saveGiveaways(giveaways);
-      return i.reply({ content: "✅ Teilnahme bestätigt!", ephemeral: true });
+      return i.reply({ content: "✅ Teilnahme gespeichert!", ephemeral: true });
     }
 
     if (i.isChatInputCommand() && i.commandName === "reroll") {
       const msgid = i.options.getString("msgid");
-      const giveaways = loadGiveaways();
-      const g = giveaways.find(x => x.messageId === msgid);
+      const g = loadGiveaways().find(x => x.messageId === msgid);
       if (!g) return i.reply({ content: "❌ Giveaway nicht gefunden!", ephemeral: true });
-      if (g.teilnehmer.length === 0)
-        return i.reply({ content: "😢 Keine Teilnehmer vorhanden!", ephemeral: true });
-
-      const winners = [];
-      for (let n = 0; n < g.gewinner; n++) {
-        const random = g.teilnehmer[Math.floor(Math.random() * g.teilnehmer.length)];
-        winners.push(`<@${random}>`);
-      }
-
-      i.reply(`🔁 Neuer Gewinner für **${g.preis}**: ${winners.join(", ")}`);
+      if (!g.teilnehmer.length) return i.reply({ content: "😢 Keine Teilnehmer!", ephemeral: true });
+      const winners = Array.from({ length: g.gewinner }, () => `<@${g.teilnehmer[Math.floor(Math.random() * g.teilnehmer.length)]}>`);
+      i.reply(`🔁 Neue Gewinner für **${g.preis}**: ${winners.join(", ")}`);
     }
 
     if (i.isChatInputCommand() && i.commandName === "end") {
-      const msgid = i.options.getString("msgid");
-      await endGiveaway(msgid, i);
+      await endGiveaway(i.options.getString("msgid"), i);
     }
-
-    // 🟩 ALLE ANDEREN SYSTEME (Verify, Tickets, Creator, PayPal, Nuke, Logs, Stats, Booster, Welcome)
-    // bleiben vollständig erhalten – sie sind unverändert im Code über oder unter diesem Abschnitt.
   } catch (err) {
-    console.error("❌ Interaktionsfehler:", err);
+    console.error("❌ Fehler:", err);
   }
 });
 
-// === Giveaway Beenden ===
+// === GIVEAWAY ENDE ===
 async function endGiveaway(msgid, interaction = null) {
   const giveaways = loadGiveaways();
   const g = giveaways.find(x => x.messageId === msgid);
   if (!g || g.beendet) return;
-
   g.beendet = true;
   saveGiveaways(giveaways);
 
   try {
     const guild = await client.guilds.fetch(g.guildId);
-    const channel = await guild.channels.fetch(g.channelId);
-    const msg = await channel.messages.fetch(g.messageId);
+    const ch = await guild.channels.fetch(g.channelId);
+    const msg = await ch.messages.fetch(g.messageId);
 
-    if (g.teilnehmer.length === 0) {
+    if (!g.teilnehmer.length) {
       const embed = EmbedBuilder.from(msg.embeds[0])
         .setColor("#808080")
-        .setDescription(`**Preis:** ${g.preis}\n\n❌ Keine Teilnehmer 😢`)
-        .setFooter({ text: "Giveaway beendet" });
+        .setDescription(`**Preis:** ${g.preis}\n❌ Keine Teilnehmer 😢`)
+        .setFooter({ text: "Beendet" });
       await msg.edit({ embeds: [embed], components: [] });
-      if (interaction) interaction.reply({ content: "❌ Keine Teilnehmer.", ephemeral: true });
-      return;
+      return interaction?.reply({ content: "❌ Keine Teilnehmer.", ephemeral: true });
     }
 
-    const winners = [];
-    for (let n = 0; n < g.gewinner; n++) {
-      const random = g.teilnehmer[Math.floor(Math.random() * g.teilnehmer.length)];
-      winners.push(`<@${random}>`);
-    }
-
+    const winners = Array.from({ length: g.gewinner }, () => `<@${g.teilnehmer[Math.floor(Math.random() * g.teilnehmer.length)]}>`);
     const embed = EmbedBuilder.from(msg.embeds[0])
       .setColor("#9B5DE5")
-      .setDescription(`**Preis:** ${g.preis}\n🏆 **Gewinner:** ${winners.join(", ")}`)
+      .setDescription(`**Preis:** ${g.preis}\n🏆 Gewinner: ${winners.join(", ")}`)
       .setFooter({ text: "Giveaway beendet" });
-
     await msg.edit({ embeds: [embed], components: [] });
-    await channel.send(`🎉 Glückwunsch ${winners.join(", ")}! Ihr habt **${g.preis}** gewonnen!`);
-    if (interaction) interaction.reply({ content: "✅ Giveaway beendet!", ephemeral: true });
+    await ch.send(`🎉 Glückwunsch ${winners.join(", ")}! Ihr habt **${g.preis}** gewonnen!`);
   } catch (err) {
-    console.error("❌ Fehler beim Beenden:", err);
+    console.error("❌ Fehler beim Ende:", err);
   }
 }
 
-// === Logging-System ===
+// === LOGGING SYSTEM ===
 client.on("guildMemberAdd", m => {
   const log = m.guild.channels.cache.get(process.env.MEMBER_LOGS_CHANNEL_ID);
-  if (log) log.send({ embeds: [new EmbedBuilder().setColor("#00FF00").setTitle("👋 Neues Mitglied").setDescription(`${m} ist beigetreten.`)] });
+  if (log)
+    log.send({ embeds: [new EmbedBuilder().setColor("#00FF00").setTitle("👋 Neues Mitglied").setDescription(`${m} ist beigetreten.`)] });
 });
 client.on("guildMemberRemove", m => {
   const log = m.guild.channels.cache.get(process.env.MEMBER_LOGS_CHANNEL_ID);
-  if (log) log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🚪 Mitglied hat verlassen").setDescription(`${m.user.tag} hat den Server verlassen.`)] });
+  if (log)
+    log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🚪 Mitglied hat verlassen").setDescription(`${m.user.tag} hat den Server verlassen.`)] });
 });
 client.on("messageDelete", msg => {
   if (!msg.guild || msg.author?.bot) return;
   const log = msg.guild.channels.cache.get(process.env.MESSAGE_LOGS_CHANNEL_ID);
-  if (log) log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🗑 Nachricht gelöscht").setDescription(`Von ${msg.author}\nIn ${msg.channel}\n\n${msg.content || "[Embed/Datei]"}`)] });
+  if (log)
+    log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🗑 Nachricht gelöscht").setDescription(`Von ${msg.author}\nIn ${msg.channel}\n\n${msg.content || "[Embed/Datei]"}`)] });
 });
 client.on("channelCreate", ch => {
   const log = ch.guild.channels.cache.get(process.env.CHANNEL_LOGS_CHANNEL_ID);
-  if (log) log.send({ embeds: [new EmbedBuilder().setColor("#00FF00").setTitle("📢 Channel erstellt").setDescription(`${ch.name}`)] });
+  if (log)
+    log.send({ embeds: [new EmbedBuilder().setColor("#00FF00").setTitle("📢 Channel erstellt").setDescription(`${ch.name}`)] });
 });
 client.on("channelDelete", ch => {
   const log = ch.guild.channels.cache.get(process.env.CHANNEL_LOGS_CHANNEL_ID);
-  if (log) log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🗑 Channel gelöscht").setDescription(`${ch.name}`)] });
+  if (log)
+    log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🗑 Channel gelöscht").setDescription(`${ch.name}`)] });
 });
 client.on("roleCreate", r => {
   const log = r.guild.channels.cache.get(process.env.ROLE_LOGS_CHANNEL_ID);
-  if (log) log.send({ embeds: [new EmbedBuilder().setColor("#00FF00").setTitle("🎭 Rolle erstellt").setDescription(`${r.name}`)] });
+  if (log)
+    log.send({ embeds: [new EmbedBuilder().setColor("#00FF00").setTitle("🎭 Rolle erstellt").setDescription(`${r.name}`)] });
 });
 client.on("roleDelete", r => {
   const log = r.guild.channels.cache.get(process.env.ROLE_LOGS_CHANNEL_ID);
-  if (log) log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🎭 Rolle gelöscht").setDescription(`${r.name}`)] });
+  if (log)
+    log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🎭 Rolle gelöscht").setDescription(`${r.name}`)] });
 });
 client.on("voiceStateUpdate", (o, n) => {
   const log = n.guild.channels.cache.get(process.env.VOICE_LOGS_CHANNEL_ID);
@@ -378,5 +368,6 @@ client.on("voiceStateUpdate", (o, n) => {
   if (desc) log.send({ embeds: [new EmbedBuilder().setColor("#00A8FF").setTitle("🔊 Voice Log").setDescription(desc)] });
 });
 
-// === Login ===
+// === LOGIN ===
 client.login(process.env.DISCORD_TOKEN);
+
