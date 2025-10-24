@@ -367,7 +367,40 @@ client.on("voiceStateUpdate", (o, n) => {
   else if (o.channelId !== n.channelId) desc = `🔁 ${user} wechselte von **${o.channel.name}** zu **${n.channel.name}**.`;
   if (desc) log.send({ embeds: [new EmbedBuilder().setColor("#00A8FF").setTitle("🔊 Voice Log").setDescription(desc)] });
 });
+// === VERIFY SYSTEM ===
+client.on("interactionCreate", async (i) => {
+  // /verifymsg Command
+  if (i.isChatInputCommand() && i.commandName === "verifymsg") {
+    const embed = new EmbedBuilder()
+      .setColor("#00FF00")
+      .setTitle("✅ Verifizierung")
+      .setDescription("Drücke unten auf **Verifizieren**, um Zugriff auf den Server zu erhalten!")
+      .setImage("https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif");
+
+    const button = new ButtonBuilder()
+      .setCustomId("verify_button")
+      .setLabel("Verifizieren")
+      .setStyle(ButtonStyle.Success);
+
+    const row = new ActionRowBuilder().addComponents(button);
+    return i.reply({ embeds: [embed], components: [row] });
+  }
+
+  // Button-Interaktion
+  if (i.isButton() && i.customId === "verify_button") {
+    const role = i.guild.roles.cache.get(process.env.VERIFY_ROLE_ID);
+    if (!role) return i.reply({ content: "❌ Verify-Rolle nicht gefunden!", ephemeral: true });
+
+    if (i.member.roles.cache.has(role.id)) {
+      return i.reply({ content: "✅ Du bist bereits verifiziert!", ephemeral: true });
+    }
+
+    await i.member.roles.add(role);
+    return i.reply({ content: "🎉 Du bist jetzt verifiziert!", ephemeral: true });
+  }
+});
 
 // === LOGIN ===
 client.login(process.env.DISCORD_TOKEN);
+
 
