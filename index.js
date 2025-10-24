@@ -28,12 +28,17 @@ const client = new Client({
   ],
 });
 
-// === Command Definitionen ===
+// === Slash-Commands ===
 const commands = [
   new SlashCommandBuilder().setName('ping').setDescription('Antwortet mit Pong!'),
-  new SlashCommandBuilder().setName('paypal').setDescription('Erstellt einen PayPal-Link').addNumberOption(o => o.setName('betrag').setDescription('Betrag in Euro').setRequired(true)),
-  new SlashCommandBuilder().setName('creator').setDescription('Creator Verwaltung')
-    .addSubcommand(sc => sc.setName('add').setDescription('Fügt einen Creator hinzu')),
+  new SlashCommandBuilder().setName('paypal').setDescription('Erstellt einen PayPal-Link')
+    .addNumberOption(o => o.setName('betrag').setDescription('Betrag in Euro').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('creator')
+    .setDescription('Creator-Verwaltung')
+    .addSubcommand(sc => sc.setName('add').setDescription('Fügt einen Creator hinzu'))
+    .addSubcommand(sc => sc.setName('list').setDescription('Zeigt alle gespeicherten Creator an')),
 ].map(c => c.toJSON());
 
 // === Commands registrieren ===
@@ -56,7 +61,7 @@ client.once('ready', () => {
   console.log(`🤖 Bot ist online als ${client.user.tag}`);
 });
 
-// === Interaction Handler ===
+// === Interactions ===
 client.on('interactionCreate', async (interaction) => {
   try {
     // === /ping ===
@@ -87,42 +92,102 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    // === /creator add (Modal anzeigen) ===
+    // === /creator add ===
     if (interaction.isChatInputCommand() && interaction.commandName === 'creator') {
       const sub = interaction.options.getSubcommand();
+
+      // ADD
       if (sub === 'add') {
         const modal = new ModalBuilder()
           .setCustomId('creatorAddModal')
           .setTitle('Creator hinzufügen');
 
-        const titleInput = new TextInputBuilder().setCustomId('title').setLabel('Titel des Embeds').setStyle(TextInputStyle.Short).setRequired(true);
-        const creatorIdInput = new TextInputBuilder().setCustomId('creatorId').setLabel('Discord-ID des Creators').setStyle(TextInputStyle.Short).setRequired(true);
-        const twitchInput = new TextInputBuilder().setCustomId('twitch').setLabel('Twitch-Link').setStyle(TextInputStyle.Short).setRequired(true);
-        const youtubeInput = new TextInputBuilder().setCustomId('youtube').setLabel('YouTube-Link (optional)').setStyle(TextInputStyle.Short).setRequired(false);
-        const codeInput = new TextInputBuilder().setCustomId('code').setLabel('Creator-Code (optional)').setStyle(TextInputStyle.Short).setRequired(false);
+        const titleInput = new TextInputBuilder()
+          .setCustomId('title')
+          .setLabel('Titel des Embeds')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const creatorIdInput = new TextInputBuilder()
+          .setCustomId('creatorId')
+          .setLabel('Discord-ID des Creators')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const twitchInput = new TextInputBuilder()
+          .setCustomId('twitch')
+          .setLabel('Twitch-Link')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const youtubeInput = new TextInputBuilder()
+          .setCustomId('youtube')
+          .setLabel('YouTube-Link (optional)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const tiktokInput = new TextInputBuilder()
+          .setCustomId('tiktok')
+          .setLabel('TikTok-Link (optional)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const codeInput = new TextInputBuilder()
+          .setCustomId('code')
+          .setLabel('Creator-Code (optional)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
 
         modal.addComponents(
           new ActionRowBuilder().addComponents(titleInput),
           new ActionRowBuilder().addComponents(creatorIdInput),
           new ActionRowBuilder().addComponents(twitchInput),
           new ActionRowBuilder().addComponents(youtubeInput),
+          new ActionRowBuilder().addComponents(tiktokInput),
           new ActionRowBuilder().addComponents(codeInput)
         );
 
         await interaction.showModal(modal);
         return;
       }
+
+      // LIST
+      if (sub === 'list') {
+        const path = './data/creators.json';
+        if (!fs.existsSync(path))
+          return interaction.reply({ content: '❌ Es wurden noch keine Creator gespeichert.', flags: 64 });
+
+        const list = JSON.parse(fs.readFileSync(path, 'utf8'));
+        if (!list.length)
+          return interaction.reply({ content: '❌ Keine Creator vorhanden.', flags: 64 });
+
+        const embed = new EmbedBuilder()
+          .setTitle('🌟 Creator Übersicht')
+          .setColor('#9b5de5')
+          .setTimestamp();
+
+        for (const c of list) {
+          let value = '';
+          if (c.twitch) value += `[Twitch](${c.twitch}) `;
+          if (c.youtube) value += `[YouTube](${c.youtube}) `;
+          if (c.tiktok) value += `[TikTok](${c.tiktok}) `;
+          if (c.code) value += `\n🎟️ **Code:** ${c.code}`;
+          embed.addFields({ name: c.title || 'Unbekannter Creator', value: value || 'Keine Links angegeben' });
+        }
+
+        await interaction.reply({ embeds: [embed], flags: 64 });
+        return;
+      }
     }
 
-    // === Modal Submit (Creator Add) ===
+    // === Modal Submit: Creator Add ===
     if (interaction.isModalSubmit() && interaction.customId === 'creatorAddModal') {
       const title = interaction.fields.getTextInputValue('title');
       const creatorId = interaction.fields.getTextInputValue('creatorId');
       const twitch = interaction.fields.getTextInputValue('twitch');
-      const youtube = interaction.fields.getTextInputValue('youtube') || '';
-      const code = interaction.fields.getTextInputValue('code') || '';
-      const tiktok = 'n/a';
-      const instagram = 'n/a';
+      const youtube = interaction.fields.getTextInputValue('youtube')?.trim() || '';
+      const tiktok = interaction.fields.getTextInputValue('tiktok')?.trim() || '';
+      const code = interaction.fields.getTextInputValue('code')?.trim() || '';
 
       const guild = interaction.guild;
       if (!guild) return interaction.reply({ content: '❌ Guild nicht gefunden!', flags: 64 });
@@ -135,12 +200,12 @@ client.on('interactionCreate', async (interaction) => {
       const embed = new EmbedBuilder()
         .setTitle(title)
         .setColor('#9b5de5')
-        .addFields(
-          { name: 'Twitch', value: twitch },
-          { name: 'YouTube', value: youtube || 'n/a' },
-          { name: 'Creator-Code', value: code || 'n/a' }
-        )
         .setTimestamp();
+
+      if (twitch) embed.addFields({ name: 'Twitch', value: twitch });
+      if (youtube) embed.addFields({ name: 'YouTube', value: youtube });
+      if (tiktok) embed.addFields({ name: 'TikTok', value: tiktok });
+      if (code) embed.addFields({ name: 'Creator-Code', value: code });
 
       const adminRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('editCreator').setLabel('Bearbeiten').setStyle(ButtonStyle.Primary),
@@ -148,18 +213,19 @@ client.on('interactionCreate', async (interaction) => {
       );
 
       const socialRow = new ActionRowBuilder();
-      if (twitch && twitch !== 'n/a') socialRow.addComponents(new ButtonBuilder().setLabel('Twitch').setStyle(ButtonStyle.Link).setURL(twitch));
-      if (youtube && youtube !== 'n/a') socialRow.addComponents(new ButtonBuilder().setLabel('YouTube').setStyle(ButtonStyle.Link).setURL(youtube));
+      if (twitch) socialRow.addComponents(new ButtonBuilder().setLabel('Twitch').setStyle(ButtonStyle.Link).setURL(twitch));
+      if (youtube) socialRow.addComponents(new ButtonBuilder().setLabel('YouTube').setStyle(ButtonStyle.Link).setURL(youtube));
+      if (tiktok) socialRow.addComponents(new ButtonBuilder().setLabel('TikTok').setStyle(ButtonStyle.Link).setURL(tiktok));
 
-      const message = await interaction.reply({ embeds: [embed], components: [adminRow, socialRow], fetchReply: true });
+      const msg = await interaction.reply({ embeds: [embed], components: [adminRow, socialRow], fetchReply: true });
 
       fs.mkdirSync('./data', { recursive: true });
       const path = './data/creators.json';
       const list = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path, 'utf8')) : [];
-      list.push({ title, creatorId, twitch, youtube, tiktok, instagram, code, messageId: message.id, channelId: message.channel.id });
+      list.push({ title, creatorId, twitch, youtube, tiktok, code, messageId: msg.id, channelId: msg.channel.id });
       fs.writeFileSync(path, JSON.stringify(list, null, 2));
 
-      await interaction.followUp({ content: '✅ Creator erstellt und Rolle vergeben!', flags: 64 });
+      await interaction.followUp({ content: '✅ Creator erstellt!', flags: 64 });
       return;
     }
 
@@ -173,18 +239,18 @@ client.on('interactionCreate', async (interaction) => {
 
       const modal = new ModalBuilder().setCustomId(`editCreatorModal_${entry.messageId}`).setTitle('Creator bearbeiten');
 
-      const titleInput = new TextInputBuilder().setCustomId('title').setLabel('Titel').setStyle(TextInputStyle.Short).setValue(entry.title);
-      const twitchInput = new TextInputBuilder().setCustomId('twitch').setLabel('Twitch-Link').setStyle(TextInputStyle.Short).setValue(entry.twitch);
-      const youtubeInput = new TextInputBuilder().setCustomId('youtube').setLabel('YouTube-Link (optional)').setStyle(TextInputStyle.Short).setValue(entry.youtube || '');
-      const codeInput = new TextInputBuilder().setCustomId('code').setLabel('Creator-Code (optional)').setStyle(TextInputStyle.Short).setValue(entry.code || '');
-      const tiktokInput = new TextInputBuilder().setCustomId('tiktok').setLabel('TikTok-Link (optional)').setStyle(TextInputStyle.Short).setValue(entry.tiktok || '');
+      const titleInput = new TextInputBuilder().setCustomId('title').setLabel('Titel').setStyle(TextInputStyle.Short).setValue(entry.title).setRequired(true);
+      const twitchInput = new TextInputBuilder().setCustomId('twitch').setLabel('Twitch-Link').setStyle(TextInputStyle.Short).setValue(entry.twitch).setRequired(true);
+      const youtubeInput = new TextInputBuilder().setCustomId('youtube').setLabel('YouTube-Link (optional)').setStyle(TextInputStyle.Short).setValue(entry.youtube || '').setRequired(false);
+      const tiktokInput = new TextInputBuilder().setCustomId('tiktok').setLabel('TikTok-Link (optional)').setStyle(TextInputStyle.Short).setValue(entry.tiktok || '').setRequired(false);
+      const codeInput = new TextInputBuilder().setCustomId('code').setLabel('Creator-Code (optional)').setStyle(TextInputStyle.Short).setValue(entry.code || '').setRequired(false);
 
       modal.addComponents(
         new ActionRowBuilder().addComponents(titleInput),
         new ActionRowBuilder().addComponents(twitchInput),
         new ActionRowBuilder().addComponents(youtubeInput),
-        new ActionRowBuilder().addComponents(codeInput),
-        new ActionRowBuilder().addComponents(tiktokInput)
+        new ActionRowBuilder().addComponents(tiktokInput),
+        new ActionRowBuilder().addComponents(codeInput)
       );
 
       await interaction.showModal(modal);
@@ -202,21 +268,16 @@ client.on('interactionCreate', async (interaction) => {
 
       entry.title = interaction.fields.getTextInputValue('title');
       entry.twitch = interaction.fields.getTextInputValue('twitch');
-      entry.youtube = interaction.fields.getTextInputValue('youtube') || '';
-      entry.code = interaction.fields.getTextInputValue('code') || '';
-      entry.tiktok = interaction.fields.getTextInputValue('tiktok') || '';
+      entry.youtube = interaction.fields.getTextInputValue('youtube')?.trim() || '';
+      entry.tiktok = interaction.fields.getTextInputValue('tiktok')?.trim() || '';
+      entry.code = interaction.fields.getTextInputValue('code')?.trim() || '';
       fs.writeFileSync(path, JSON.stringify(list, null, 2));
 
-      const embed = new EmbedBuilder()
-        .setTitle(entry.title)
-        .setColor('#9b5de5')
-        .addFields(
-          { name: 'Twitch', value: entry.twitch },
-          { name: 'YouTube', value: entry.youtube || 'n/a' },
-          { name: 'Creator-Code', value: entry.code || 'n/a' },
-          { name: 'TikTok', value: entry.tiktok || 'n/a' }
-        )
-        .setTimestamp();
+      const embed = new EmbedBuilder().setTitle(entry.title).setColor('#9b5de5').setTimestamp();
+      if (entry.twitch) embed.addFields({ name: 'Twitch', value: entry.twitch });
+      if (entry.youtube) embed.addFields({ name: 'YouTube', value: entry.youtube });
+      if (entry.tiktok) embed.addFields({ name: 'TikTok', value: entry.tiktok });
+      if (entry.code) embed.addFields({ name: 'Creator-Code', value: entry.code });
 
       const adminRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('editCreator').setLabel('Bearbeiten').setStyle(ButtonStyle.Primary),
@@ -253,8 +314,9 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-// === Bot Login ===
+// === Login ===
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
