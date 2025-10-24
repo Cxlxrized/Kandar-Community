@@ -2,15 +2,13 @@ import { REST, Routes, SlashCommandBuilder } from "discord.js";
 import "dotenv/config";
 
 export default async function registerCommands(client) {
-
   const commands = [
-
     // === PayPal ===
     new SlashCommandBuilder()
       .setName("paypal")
       .setDescription("💰 PayPal Zahlung erstellen")
-      .addNumberOption(option =>
-        option.setName("betrag")
+      .addNumberOption(opt =>
+        opt.setName("betrag")
           .setDescription("Betrag in €")
           .setRequired(true)
       ),
@@ -37,7 +35,7 @@ export default async function registerCommands(client) {
       .addSubcommand(sub =>
         sub.setName("start")
           .setDescription("🎉 Neues Giveaway starten")
-          .addStringOption(o => o.setName("dauer").setDescription("d = Tage, h = Stunden, m = Minuten (z.B. 1h)").setRequired(true))
+          .addStringOption(o => o.setName("dauer").setDescription("d = Tage, h = Stunden, m = Minuten").setRequired(true))
           .addStringOption(o => o.setName("preis").setDescription("Gewinn").setRequired(true))
           .addChannelOption(o => o.setName("kanal").setDescription("Kanal für das Giveaway").setRequired(true))
       )
@@ -56,27 +54,35 @@ export default async function registerCommands(client) {
     new SlashCommandBuilder()
       .setName("bestellung")
       .setDescription("🛒 Bestellung anlegen & verwalten")
-      .addStringOption(option =>
-        option.setName("artikel")
+      .addStringOption(opt =>
+        opt.setName("artikel")
           .setDescription("Artikel den du bestellst")
           .setRequired(true)
       )
-  ].map(cmd => cmd.toJSON());
+  ].map(c => c.toJSON());
 
   const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
 
   try {
     console.log("🔁 Lade Slash Commands ...");
-    await rest.put(
-      Routes.applicationCommands(
-        client.user?.id ?? process.env.CLIENT_ID
-      ),
-      { body: commands }
-    );
-    console.log("✅ Alle Slash Commands erfolgreich geladen!");
-  } catch (error) {
-    console.error("❌ Command Fehler:", error);
+
+    // === Guild oder Global? ===
+    if (process.env.GUILD_ID) {
+      await rest.put(
+        Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+        { body: commands }
+      );
+      console.log("✅ Guild Commands erfolgreich geladen!");
+    } else {
+      await rest.put(
+        Routes.applicationCommands(process.env.CLIENT_ID),
+        { body: commands }
+      );
+      console.log("✅ Global Commands erfolgreich geladen!");
+    }
+
+  } catch (err) {
+    console.error("❌ Fehler beim Registrieren der Commands:", err);
   }
 }
-
 
