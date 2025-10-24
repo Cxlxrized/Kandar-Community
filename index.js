@@ -452,6 +452,99 @@ client.on("interactionCreate", async (i) => {
       await ch.send({ content: `${i.user}`, embeds: [embed] });
       return i.reply({ content: `✅ Streamer Bewerbung erstellt: ${ch}`, ephemeral: true });
     }
+    /* ---- TICKET MANAGEMENT (Schließen / Transkript / Löschen) ---- */
+
+    // Sobald ein Ticket erstellt wird (egal welche Art), Buttons hinzufügen:
+    async function sendTicketControls(channel, user) {
+      const closeBtn = new ButtonBuilder()
+        .setCustomId("ticket_close")
+        .setLabel("🔒 Schließen")
+        .setStyle(ButtonStyle.Secondary);
+
+      const transcriptBtn = new ButtonBuilder()
+        .setCustomId("ticket_transcript")
+        .setLabel("🧾 Transkript")
+        .setStyle(ButtonStyle.Primary);
+
+      const deleteBtn = new ButtonBuilder()
+        .setCustomId("ticket_delete")
+        .setLabel("❌ Löschen")
+        .setStyle(ButtonStyle.Danger);
+
+      const row = new ActionRowBuilder().addComponents(closeBtn, transcriptBtn, deleteBtn);
+      await channel.send({
+        content: `${user}`,
+        embeds: [
+          new EmbedBuilder()
+            .setColor("#00FF00")
+            .setTitle("🎟 Ticket Steuerung")
+            .setDescription("Verwende die Buttons, um das Ticket zu verwalten."),
+        ],
+        components: [row],
+      });
+    }
+
+    // Bei Ticket-Erstellung überall am Ende:
+    // await sendTicketControls(ch, i.user);
+
+    // Close Button
+    if (i.isButton() && i.customId === "ticket_close") {
+      const channel = i.channel;
+      const member = i.member;
+
+      if (!member.permissions.has(PermissionFlagsBits.ManageChannels))
+        return i.reply({ content: "❌ Nur Teammitglieder können Tickets schließen!", ephemeral: true });
+
+      await channel.permissionOverwrites.edit(
+        channel.guild.roles.everyone,
+        { ViewChannel: false }
+      );
+      await i.reply({ content: "🔒 Ticket wurde geschlossen!", ephemeral: true });
+
+      const embed = new EmbedBuilder()
+        .setColor("#FFA500")
+        .setTitle("🔒 Ticket geschlossen")
+        .setDescription(`Geschlossen von ${i.user}`);
+
+      await channel.send({ embeds: [embed] });
+    }
+
+    // Transkript Button
+    if (i.isButton() && i.customId === "ticket_transcript") {
+      const msgs = await i.channel.messages.fetch({ limit: 100 });
+      const sorted = msgs.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+      const content = sorted.map(m => `${m.author.tag}: ${m.content}`).join("\n");
+
+      const filePath = `./data/transcript_${i.channel.id}.txt`;
+      fs.writeFileSync(filePath, content || "Keine Nachrichten im Ticket.");
+
+      const embed = new EmbedBuilder()
+        .setColor("#00BFFF")
+        .setTitle("🧾 Transkript erstellt")
+        .setDescription("Das Transkript wurde erfolgreich erstellt.");
+
+      await i.reply({ embeds: [embed], files: [filePath], ephemeral: true });
+
+      // Optional: In Logs posten
+      const logChannel = i.guild.channels.cache.get(process.env.TICKET_LOG_CHANNEL_ID);
+      if (logChannel) {
+        await logChannel.send({
+          content: `🧾 Transkript von ${i.channel} (${i.channel.name})`,
+          files: [filePath],
+        });
+      }
+
+      setTimeout(() => fs.unlinkSync(filePath), 10000); // nach 10 Sekunden löschen
+    }
+
+    // Delete Button
+    if (i.isButton() && i.customId === "ticket_delete") {
+      if (!i.member.permissions.has(PermissionFlagsBits.ManageChannels))
+        return i.reply({ content: "❌ Nur Teammitglieder können Tickets löschen!", ephemeral: true });
+
+      await i.reply({ content: "🗑 Ticket wird gelöscht...", ephemeral: true });
+      setTimeout(() => i.channel.delete().catch(() => {}), 3000);
+    }
 
     /* ---- CREATOR ADD ---- */
     if (i.isChatInputCommand() && i.commandName === "creator" && i.options.getSubcommand() === "add") {
@@ -703,5 +796,6 @@ client.on("voiceStateUpdate", (o, n) => {
    Login
 =========================== */
 client.login(process.env.DISCORD_TOKEN);
+
 
 
