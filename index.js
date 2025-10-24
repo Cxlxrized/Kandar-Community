@@ -465,6 +465,190 @@ client.on("interactionCreate", async (i) => {
     console.error("❌ Interaktionsfehler:", err);
   }
 });
+// === GIVEAWAY SYSTEM ===
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  SlashCommandBuilder,
+} from "discord.js";
+import fs from "fs";
+
+const GIVEAWAY_FILE = "./data/giveaways.json";
+
+// Giveaway-Befehle hinzufügen
+commands.push(
+  new SlashCommandBuilder()
+    .setName("giveaway")
+    .setDescription("Starte ein neues Giveaway")
+    .addStringOption(o => o.setName("preis").setDescription("Preis des Giveaways").setRequired(true))
+    .addStringOption(o => o.setName("dauer").setDescription("Dauer (z. B. 1d, 2h, 30m)").setRequired(true))
+    .addIntegerOption(o => o.setName("gewinner").setDescription("Anzahl der Gewinner").setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName("reroll")
+    .setDescription("Wähle einen neuen Gewinner")
+    .addStringOption(o => o.setName("msgid").setDescription("Nachrichten-ID des Giveaways").setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName("end")
+    .setDescription("Beende ein Giveaway vorzeitig")
+    .addStringOption(o => o.setName("msgid").setDescription("Nachrichten-ID des Giveaways").setRequired(true))
+);
+
+// Hilfsfunktionen
+function parseDuration(str) {
+  const regex = /(\d+d)?(\d+h)?(\d+m)?/;
+  const match = str.match(regex);
+  if (!match) return null;
+  let ms = 0;
+  if (match[1]) ms += parseInt(match[1]) * 86400000;
+  if (match[2]) ms += parseInt(match[2]) * 3600000;
+  if (match[3]) ms += parseInt(match[3]) * 60000;
+  return ms;
+}
+
+function loadGiveaways() {
+  if (!fs.existsSync(GIVEAWAY_FILE)) return [];
+  return JSON.parse(fs.readFileSync(GIVEAWAY_FILE, "utf8"));
+}
+function saveGiveaways(data) {
+  fs.writeFileSync(GIVEAWAY_FILE, JSON.stringify(data, null, 2));
+}
+
+// Interaction-Handling für Giveaways
+client.on("interactionCreate", async (i) => {
+  try {
+    // /giveaway
+    if (i.isChatInputCommand() && i.commandName === "giveaway") {
+      const preis = i.options.getString("preis");
+      const dauerStr = i.options.getString("dauer");
+      const gewinner = i.options.getInteger("gewinner") || 1;
+      const dauer = parseDuration(dauerStr);
+      if (!dauer || dauer <= 0)
+        return i.reply({ content: "⚠️ Ungültige Zeitangabe (z. B. 1d2h30m)!", ephemeral: true });
+
+      const endZeit = Date.now() + dauer;
+
+      const embed = new EmbedBuilder()
+        .setColor("#9B5DE5")
+        .setTitle("🎉 Neues Giveaway 🎉")
+        .setDescription(
+          `**Preis:** ${preis}\n🎁 **Anzahl Gewinner:** ${gewinner}\n⏰ **Endet in:** ${dauerStr}\n\nDrücke auf den Button, um teilzunehmen!`
+        )
+        .setImage("https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif")
+        .setTimestamp(new Date(endZeit))
+        .setFooter({ text: "Endet" });
+
+      const btn = new ButtonBuilder()
+        .setCustomId("giveaway_join")
+        .setLabel("Teilnehmen 🎉")
+        .setStyle(ButtonStyle.Primary);
+
+      const row = new ActionRowBuilder().addComponents(btn);
+      const msg = await i.reply({ embeds: [embed], components: [row], fetchReply: true });
+
+      const giveaways = loadGiveaways();
+      giveaways.push({
+        messageId: msg.id,
+        channelId: msg.channel.id,
+        guildId: msg.guild.id,
+        preis,
+        endZeit,
+        gewinner,
+        teilnehmer: [],
+        beendet: false,
+      });
+      saveGiveaways(giveaways);
+
+      setTimeout(() => endGiveaway(msg.id), dauer);
+    }
+
+    // Teilnahme-Button
+    if (i.isButton() && i.customId === "giveaway_join") {
+      const giveaways = loadGiveaways();
+      const g = giveaways.find(x => x.messageId === i.message.id);
+      if (!g) return i.reply({ content: "❌ Giveaway nicht gefunden.", ephemeral: true });
+      if (g.beendet) return i.reply({ content: "🚫 Dieses Giveaway ist bereits beendet!", ephemeral: true });
+      if (g.teilnehmer.includes(i.user.id))
+        return i.reply({ content: "⚠️ Du nimmst bereits teil!", ephemeral: true });
+
+      g.teilnehmer.push(i.user.id);
+      saveGiveaways(giveaways);
+      return i.reply({ content: "✅ Du nimmst am Giveaway teil!", ephemeral: true });
+    }
+
+    // /reroll
+    if (i.isChatInputCommand() && i.commandName === "reroll") {
+      const msgid = i.options.getString("msgid");
+      const giveaways = loadGiveaways();
+      const g = giveaways.find(x => x.messageId === msgid);
+      if (!g) return i.reply({ content: "❌ Giveaway nicht gefunden!", ephemeral: true });
+      if (g.teilnehmer.length === 0)
+        return i.reply({ content: "😢 Keine Teilnehmer vorhanden!", ephemeral: true });
+
+      const winners = [];
+      for (let n = 0; n < g.gewinner; n++) {
+        const random = g.teilnehmer[Math.floor(Math.random() * g.teilnehmer.length)];
+        winners.push(`<@${random}>`);
+      }
+
+      i.reply(`🔁 Neuer Gewinner für **${g.preis}**: ${winners.join(", ")}`);
+    }
+
+    // /end
+    if (i.isChatInputCommand() && i.commandName === "end") {
+      const msgid = i.options.getString("msgid");
+      endGiveaway(msgid, i);
+    }
+  } catch (err) {
+    console.error("❌ Fehler im Giveaway-System:", err);
+  }
+});
+
+// Funktion zum Beenden
+async function endGiveaway(msgid, interaction = null) {
+  const giveaways = loadGiveaways();
+  const g = giveaways.find(x => x.messageId === msgid);
+  if (!g || g.beendet) return;
+
+  g.beendet = true;
+  saveGiveaways(giveaways);
+
+  try {
+    const guild = await client.guilds.fetch(g.guildId);
+    const channel = await guild.channels.fetch(g.channelId);
+    const msg = await channel.messages.fetch(g.messageId);
+
+    if (g.teilnehmer.length === 0) {
+      const embed = EmbedBuilder.from(msg.embeds[0])
+        .setColor("#808080")
+        .setDescription(`**Preis:** ${g.preis}\n\n❌ Keine Teilnehmer 😢`)
+        .setFooter({ text: "Giveaway beendet" });
+      await msg.edit({ embeds: [embed], components: [] });
+      if (interaction) interaction.reply({ content: "❌ Keine Teilnehmer. Giveaway beendet.", ephemeral: true });
+      return;
+    }
+
+    const winners = [];
+    for (let n = 0; n < g.gewinner; n++) {
+      const random = g.teilnehmer[Math.floor(Math.random() * g.teilnehmer.length)];
+      winners.push(`<@${random}>`);
+    }
+
+    const embed = EmbedBuilder.from(msg.embeds[0])
+      .setColor("#9B5DE5")
+      .setDescription(`**Preis:** ${g.preis}\n🏆 **Gewinner:** ${winners.join(", ")}`)
+      .setFooter({ text: "Giveaway beendet" });
+
+    await msg.edit({ embeds: [embed], components: [] });
+    await channel.send(`🎉 Glückwunsch ${winners.join(", ")}! Ihr habt **${g.preis}** gewonnen!`);
+    if (interaction) interaction.reply({ content: "✅ Giveaway beendet!", ephemeral: true });
+  } catch (err) {
+    console.error("❌ Fehler beim Beenden des Giveaways:", err);
+  }
+}
 
 // === LOGGING SYSTEM ===
 client.on("guildMemberAdd", m => {
@@ -509,6 +693,7 @@ client.on("voiceStateUpdate", (o, n) => {
 
 // === Login ===
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
