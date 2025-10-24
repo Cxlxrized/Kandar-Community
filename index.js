@@ -11,7 +11,7 @@ import verify from './verify.js';
 import twitch from './twitch.js';
 import order from './order.js';
 import nuke from './nuke.js';
-import registerCommands from './commands.js';
+import startStats from './stats.js'; // <-- stats.js importieren
 
 // === Client erstellen ===
 const client = new Client({
@@ -29,20 +29,24 @@ app.get('/', (req, res) => res.send('✅ Bot läuft auf Railway!'));
 app.listen(process.env.PORT || 3000, () => console.log('🌍 Webserver läuft'));
 
 // === Module laden ===
-welcome(client);       // Welcome-Embed
-tickets(client);       // Ticket-System
-paypal(client);        // PayPal Command
-boost(client);         // Boost-Nachrichten
-verify(client);        // Verify Command
-twitch(client);        // Twitch Announce
-order(client);         // Order System
-nuke(client);          // Nuke Command
+welcome(client);
+tickets(client);
+paypal(client);
+boost(client);
+verify(client);
+twitch(client);
+order(client);
+nuke(client);
 
-// === Slash Commands registrieren ===
-registerCommands(client);
+// === Stats starten ===
+startStats(client); // <-- stats.js mit dem Client starten
 
 // === Bot Login ===
-client.login(process.env.DISCORD_TOKEN);
+client.login(process.env.DISCORD_TOKEN)
+  .then(() => console.log('🤖 Bot erfolgreich eingeloggt!'))
+  .catch(err => console.error('❌ Bot Login fehlgeschlagen:', err));
+
+
 
 
 
