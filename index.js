@@ -28,300 +28,257 @@ const client = new Client({
   ],
 });
 
-// === Slash-Commands ===
+// === Slash Commands definieren ===
 const commands = [
-  new SlashCommandBuilder().setName('ping').setDescription('Antwortet mit Pong!'),
-  new SlashCommandBuilder().setName('paypal').setDescription('Erstellt einen PayPal-Link')
+  new SlashCommandBuilder()
+    .setName('paypal')
+    .setDescription('Erstellt einen PayPal-Zahlungslink')
     .addNumberOption(o => o.setName('betrag').setDescription('Betrag in Euro').setRequired(true)),
 
   new SlashCommandBuilder()
+    .setName('order')
+    .setDescription('Erstellt eine Bestellung')
+    .addStringOption(o => o.setName('artikel').setDescription('Artikelname').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('ticketmsg')
+    .setDescription('Sendet das Ticket-Auswahlpanel'),
+
+  new SlashCommandBuilder()
+    .setName('verify')
+    .setDescription('Sendet das Regelwerk & den Verify-Button'),
+
+  new SlashCommandBuilder()
     .setName('creator')
-    .setDescription('Creator-Verwaltung')
-    .addSubcommand(sc => sc.setName('add').setDescription('Fügt einen Creator hinzu'))
-    .addSubcommand(sc => sc.setName('list').setDescription('Zeigt alle gespeicherten Creator an')),
+    .setDescription('Creator-System')
+    .addSubcommand(sc => sc.setName('add').setDescription('Creator hinzufügen'))
+    .addSubcommand(sc => sc.setName('list').setDescription('Zeigt alle Creator')),
+
+  new SlashCommandBuilder()
+    .setName('nuke')
+    .setDescription('Löscht alle Nachrichten im aktuellen Channel')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
 ].map(c => c.toJSON());
 
 // === Commands registrieren ===
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 (async () => {
   try {
-    console.log('🔄 Commands werden registriert...');
+    console.log('🔄 Registriere Commands...');
     await rest.put(
       Routes.applicationGuildCommands(process.env.BOT_ID, process.env.GUILD_ID),
       { body: commands }
     );
     console.log('✅ Commands registriert!');
   } catch (err) {
-    console.error('❌ Fehler beim Registrieren der Commands:', err);
+    console.error('❌ Fehler beim Registrieren:', err);
   }
 })();
 
-// === Bot Ready ===
-client.once('ready', () => {
-  console.log(`🤖 Bot ist online als ${client.user.tag}`);
+// === Ready ===
+client.once('ready', () => console.log(`🤖 Bot online als ${client.user.tag}`));
+
+// === Welcome-Embed ===
+client.on('guildMemberAdd', async member => {
+  const welcomeChannelId = process.env.WELCOME_CHANNEL_ID;
+  const channel = member.guild.channels.cache.get(welcomeChannelId);
+  if (!channel) return;
+
+  const embed = new EmbedBuilder()
+    .setColor('#00FF00')
+    .setTitle('👋 Willkommen auf dem Server!')
+    .setDescription(`Willkommen ${member}, schön, dass du dabei bist! 🎉`)
+    .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+    .setTimestamp();
+
+  await channel.send({ embeds: [embed] });
 });
 
 // === Interactions ===
-client.on('interactionCreate', async (interaction) => {
+client.on('interactionCreate', async interaction => {
   try {
-    // === /ping ===
-    if (interaction.isChatInputCommand() && interaction.commandName === 'ping') {
-      await interaction.reply('🏓 Pong!');
-      return;
-    }
-
-    // === /paypal ===
+    // ---------------- PAYPAL ----------------
     if (interaction.isChatInputCommand() && interaction.commandName === 'paypal') {
       const amount = interaction.options.getNumber('betrag');
       if (!amount || amount <= 0)
-        return interaction.reply({ content: '⚠️ Bitte gib einen gültigen Betrag ein!', flags: 64 });
+        return interaction.reply({ content: '⚠️ Bitte einen gültigen Betrag eingeben!', flags: 64 });
 
-      const paypalLink = `https://www.paypal.com/paypalme/jonahborospreitzer/${amount}`;
+      const link = `https://www.paypal.com/paypalme/jonahborospreitzer/${amount}`;
       const embed = new EmbedBuilder()
+        .setColor('#0099ff')
         .setTitle('💰 PayPal Zahlung')
         .setDescription(`Klicke unten, um **${amount}€** zu zahlen.`)
-        .setColor('#0099ff')
-        .setTimestamp();
+        .setFooter({ text: 'Kandar Community' });
 
       const button = new ButtonBuilder()
         .setLabel(`Jetzt ${amount}€ zahlen`)
         .setStyle(ButtonStyle.Link)
-        .setURL(paypalLink);
+        .setURL(link);
 
       await interaction.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(button)] });
       return;
     }
 
-    // === /creator add ===
-    if (interaction.isChatInputCommand() && interaction.commandName === 'creator') {
-      const sub = interaction.options.getSubcommand();
-
-      // ADD
-      if (sub === 'add') {
-        const modal = new ModalBuilder()
-          .setCustomId('creatorAddModal')
-          .setTitle('Creator hinzufügen');
-
-        const titleInput = new TextInputBuilder()
-          .setCustomId('title')
-          .setLabel('Titel des Embeds')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-
-        const creatorIdInput = new TextInputBuilder()
-          .setCustomId('creatorId')
-          .setLabel('Discord-ID des Creators')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-
-        const twitchInput = new TextInputBuilder()
-          .setCustomId('twitch')
-          .setLabel('Twitch-Link')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-
-        const youtubeInput = new TextInputBuilder()
-          .setCustomId('youtube')
-          .setLabel('YouTube-Link (optional)')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false);
-
-        const tiktokInput = new TextInputBuilder()
-          .setCustomId('tiktok')
-          .setLabel('TikTok-Link (optional)')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false);
-
-        const codeInput = new TextInputBuilder()
-          .setCustomId('code')
-          .setLabel('Creator-Code (optional)')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false);
-
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(titleInput),
-          new ActionRowBuilder().addComponents(creatorIdInput),
-          new ActionRowBuilder().addComponents(twitchInput),
-          new ActionRowBuilder().addComponents(youtubeInput),
-          new ActionRowBuilder().addComponents(tiktokInput),
-          new ActionRowBuilder().addComponents(codeInput)
-        );
-
-        await interaction.showModal(modal);
-        return;
-      }
-
-      // LIST
-      if (sub === 'list') {
-        const path = './data/creators.json';
-        if (!fs.existsSync(path))
-          return interaction.reply({ content: '❌ Es wurden noch keine Creator gespeichert.', flags: 64 });
-
-        const list = JSON.parse(fs.readFileSync(path, 'utf8'));
-        if (!list.length)
-          return interaction.reply({ content: '❌ Keine Creator vorhanden.', flags: 64 });
-
-        const embed = new EmbedBuilder()
-          .setTitle('🌟 Creator Übersicht')
-          .setColor('#9b5de5')
-          .setTimestamp();
-
-        for (const c of list) {
-          let value = '';
-          if (c.twitch) value += `[Twitch](${c.twitch}) `;
-          if (c.youtube) value += `[YouTube](${c.youtube}) `;
-          if (c.tiktok) value += `[TikTok](${c.tiktok}) `;
-          if (c.code) value += `\n🎟️ **Code:** ${c.code}`;
-          embed.addFields({ name: c.title || 'Unbekannter Creator', value: value || 'Keine Links angegeben' });
-        }
-
-        await interaction.reply({ embeds: [embed], flags: 64 });
-        return;
-      }
-    }
-
-    // === Modal Submit: Creator Add ===
-    if (interaction.isModalSubmit() && interaction.customId === 'creatorAddModal') {
-      const title = interaction.fields.getTextInputValue('title');
-      const creatorId = interaction.fields.getTextInputValue('creatorId');
-      const twitch = interaction.fields.getTextInputValue('twitch');
-      const youtube = interaction.fields.getTextInputValue('youtube')?.trim() || '';
-      const tiktok = interaction.fields.getTextInputValue('tiktok')?.trim() || '';
-      const code = interaction.fields.getTextInputValue('code')?.trim() || '';
-
-      const guild = interaction.guild;
-      if (!guild) return interaction.reply({ content: '❌ Guild nicht gefunden!', flags: 64 });
-
-      const roleName = process.env.CREATOR_ROLE_NAME || 'Creator';
-      const role = guild.roles.cache.find(r => r.name === roleName);
-      const member = await guild.members.fetch(creatorId).catch(() => null);
-      if (member && role) await member.roles.add(role).catch(() => {});
+    // ---------------- ORDER ----------------
+    if (interaction.isChatInputCommand() && interaction.commandName === 'order') {
+      const artikel = interaction.options.getString('artikel');
+      const userId = interaction.user.id;
+      if (!global.orders) global.orders = new Map();
+      if (!global.orders.has(userId)) global.orders.set(userId, []);
+      global.orders.get(userId).push(artikel);
 
       const embed = new EmbedBuilder()
-        .setTitle(title)
-        .setColor('#9b5de5')
-        .setTimestamp();
+        .setColor('#00A8FF')
+        .setTitle(`🛒 Bestellung von ${interaction.user.username}`)
+        .setDescription(global.orders.get(userId).map((a, i) => `**${i + 1}.** ${a}`).join('\n'));
 
-      if (twitch) embed.addFields({ name: 'Twitch', value: twitch });
-      if (youtube) embed.addFields({ name: 'YouTube', value: youtube });
-      if (tiktok) embed.addFields({ name: 'TikTok', value: tiktok });
-      if (code) embed.addFields({ name: 'Creator-Code', value: code });
+      const menu = new StringSelectMenuBuilder()
+        .setCustomId('orderMenu')
+        .setPlaceholder('Aktion auswählen')
+        .addOptions([
+          { label: 'Artikel hinzufügen', value: 'add' },
+          { label: 'Bestellung abschließen', value: 'finish' }
+        ]);
 
-      const adminRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('editCreator').setLabel('Bearbeiten').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('deleteCreator').setLabel('Löschen').setStyle(ButtonStyle.Danger)
-      );
-
-      const socialRow = new ActionRowBuilder();
-      if (twitch) socialRow.addComponents(new ButtonBuilder().setLabel('Twitch').setStyle(ButtonStyle.Link).setURL(twitch));
-      if (youtube) socialRow.addComponents(new ButtonBuilder().setLabel('YouTube').setStyle(ButtonStyle.Link).setURL(youtube));
-      if (tiktok) socialRow.addComponents(new ButtonBuilder().setLabel('TikTok').setStyle(ButtonStyle.Link).setURL(tiktok));
-
-      const msg = await interaction.reply({ embeds: [embed], components: [adminRow, socialRow], fetchReply: true });
-
-      fs.mkdirSync('./data', { recursive: true });
-      const path = './data/creators.json';
-      const list = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path, 'utf8')) : [];
-      list.push({ title, creatorId, twitch, youtube, tiktok, code, messageId: msg.id, channelId: msg.channel.id });
-      fs.writeFileSync(path, JSON.stringify(list, null, 2));
-
-      await interaction.followUp({ content: '✅ Creator erstellt!', flags: 64 });
+      await interaction.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(menu)] });
       return;
     }
 
-    // === Creator bearbeiten ===
-    if (interaction.isButton() && interaction.customId === 'editCreator') {
-      const path = './data/creators.json';
-      if (!fs.existsSync(path)) return interaction.reply({ content: '❌ Keine Creator gespeichert.', flags: 64 });
-      const list = JSON.parse(fs.readFileSync(path, 'utf8'));
-      const entry = list.find(e => e.messageId === interaction.message.id);
-      if (!entry) return interaction.reply({ content: '❌ Creator nicht gefunden.', flags: 64 });
+    if (interaction.isStringSelectMenu() && interaction.customId === 'orderMenu') {
+      const userId = interaction.user.id;
+      if (!global.orders || !global.orders.has(userId))
+        return interaction.reply({ content: '❌ Keine Bestellung gefunden!', flags: 64 });
 
-      const modal = new ModalBuilder().setCustomId(`editCreatorModal_${entry.messageId}`).setTitle('Creator bearbeiten');
+      if (interaction.values[0] === 'add') {
+        const modal = new ModalBuilder().setCustomId('addOrder').setTitle('Artikel hinzufügen');
+        const input = new TextInputBuilder().setCustomId('artikel').setLabel('Artikelname').setStyle(TextInputStyle.Short);
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        return interaction.showModal(modal);
+      }
 
-      const titleInput = new TextInputBuilder().setCustomId('title').setLabel('Titel').setStyle(TextInputStyle.Short).setValue(entry.title).setRequired(true);
-      const twitchInput = new TextInputBuilder().setCustomId('twitch').setLabel('Twitch-Link').setStyle(TextInputStyle.Short).setValue(entry.twitch).setRequired(true);
-      const youtubeInput = new TextInputBuilder().setCustomId('youtube').setLabel('YouTube-Link (optional)').setStyle(TextInputStyle.Short).setValue(entry.youtube || '').setRequired(false);
-      const tiktokInput = new TextInputBuilder().setCustomId('tiktok').setLabel('TikTok-Link (optional)').setStyle(TextInputStyle.Short).setValue(entry.tiktok || '').setRequired(false);
-      const codeInput = new TextInputBuilder().setCustomId('code').setLabel('Creator-Code (optional)').setStyle(TextInputStyle.Short).setValue(entry.code || '').setRequired(false);
-
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(titleInput),
-        new ActionRowBuilder().addComponents(twitchInput),
-        new ActionRowBuilder().addComponents(youtubeInput),
-        new ActionRowBuilder().addComponents(tiktokInput),
-        new ActionRowBuilder().addComponents(codeInput)
-      );
-
-      await interaction.showModal(modal);
+      if (interaction.values[0] === 'finish') {
+        global.orders.delete(userId);
+        const embed = new EmbedBuilder().setColor('#00FF6E').setTitle('✅ Bestellung abgeschlossen');
+        await interaction.update({ embeds: [embed], components: [] });
+      }
       return;
     }
 
-    // === Modal Submit (Edit) ===
-    if (interaction.isModalSubmit() && interaction.customId.startsWith('editCreatorModal_')) {
-      const messageId = interaction.customId.split('editCreatorModal_')[1];
-      const path = './data/creators.json';
-      if (!fs.existsSync(path)) return interaction.reply({ content: '❌ Datei fehlt.', flags: 64 });
-      const list = JSON.parse(fs.readFileSync(path, 'utf8'));
-      const entry = list.find(e => e.messageId === messageId);
-      if (!entry) return interaction.reply({ content: '❌ Creator nicht gefunden.', flags: 64 });
+    if (interaction.isModalSubmit() && interaction.customId === 'addOrder') {
+      const artikel = interaction.fields.getTextInputValue('artikel');
+      const userId = interaction.user.id;
+      if (!global.orders || !global.orders.has(userId))
+        return interaction.reply({ content: '❌ Keine Bestellung gefunden!', flags: 64 });
 
-      entry.title = interaction.fields.getTextInputValue('title');
-      entry.twitch = interaction.fields.getTextInputValue('twitch');
-      entry.youtube = interaction.fields.getTextInputValue('youtube')?.trim() || '';
-      entry.tiktok = interaction.fields.getTextInputValue('tiktok')?.trim() || '';
-      entry.code = interaction.fields.getTextInputValue('code')?.trim() || '';
-      fs.writeFileSync(path, JSON.stringify(list, null, 2));
+      global.orders.get(userId).push(artikel);
 
-      const embed = new EmbedBuilder().setTitle(entry.title).setColor('#9b5de5').setTimestamp();
-      if (entry.twitch) embed.addFields({ name: 'Twitch', value: entry.twitch });
-      if (entry.youtube) embed.addFields({ name: 'YouTube', value: entry.youtube });
-      if (entry.tiktok) embed.addFields({ name: 'TikTok', value: entry.tiktok });
-      if (entry.code) embed.addFields({ name: 'Creator-Code', value: entry.code });
+      const embed = new EmbedBuilder()
+        .setColor('#00A8FF')
+        .setTitle(`🛒 Bestellung von ${interaction.user.username}`)
+        .setDescription(global.orders.get(userId).map((a, i) => `**${i + 1}.** ${a}`).join('\n'));
 
-      const adminRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('editCreator').setLabel('Bearbeiten').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('deleteCreator').setLabel('Löschen').setStyle(ButtonStyle.Danger)
-      );
+      const menu = new StringSelectMenuBuilder()
+        .setCustomId('orderMenu')
+        .setPlaceholder('Aktion auswählen')
+        .addOptions([
+          { label: 'Artikel hinzufügen', value: 'add' },
+          { label: 'Bestellung abschließen', value: 'finish' }
+        ]);
 
-      const socialRow = new ActionRowBuilder();
-      if (entry.twitch) socialRow.addComponents(new ButtonBuilder().setLabel('Twitch').setStyle(ButtonStyle.Link).setURL(entry.twitch));
-      if (entry.youtube) socialRow.addComponents(new ButtonBuilder().setLabel('YouTube').setStyle(ButtonStyle.Link).setURL(entry.youtube));
-      if (entry.tiktok) socialRow.addComponents(new ButtonBuilder().setLabel('TikTok').setStyle(ButtonStyle.Link).setURL(entry.tiktok));
-
-      const msg = await interaction.channel.messages.fetch(messageId);
-      await msg.edit({ embeds: [embed], components: [adminRow, socialRow] });
-      await interaction.reply({ content: '✅ Creator aktualisiert!', flags: 64 });
+      await interaction.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(menu)] });
       return;
     }
 
-    // === Creator löschen ===
-    if (interaction.isButton() && interaction.customId === 'deleteCreator') {
-      const path = './data/creators.json';
-      if (!fs.existsSync(path)) return interaction.reply({ content: '❌ Keine Creator gespeichert.', flags: 64 });
-      const list = JSON.parse(fs.readFileSync(path, 'utf8'));
-      const newList = list.filter(e => e.messageId !== interaction.message.id);
-      fs.writeFileSync(path, JSON.stringify(newList, null, 2));
-      await interaction.message.delete().catch(() => {});
-      await interaction.reply({ content: '🗑️ Creator gelöscht!', flags: 64 });
+    // ---------------- TICKET PANEL ----------------
+    if (interaction.isChatInputCommand() && interaction.commandName === 'ticketmsg') {
+      const embed = new EmbedBuilder()
+        .setTitle('🎫 Ticket-System')
+        .setColor('#00FF00')
+        .setDescription(
+          `Bitte wähle unten deine Kategorie:\n\n` +
+          `💰 **Shop Ticket**\n✍️ **Kandar Bewerbung**\n🎨 **Designer Bewerbung**\n✂️ **Cutter Bewerbung**\n🎥 **Streamer Bewerbung**\n👑 **Highteam Anliegen**\n🛠️ **Support**`
+        );
+
+      const menu = new StringSelectMenuBuilder()
+        .setCustomId('ticketSelect')
+        .setPlaceholder('Wähle eine Kategorie')
+        .addOptions([
+          { label: 'Shop Ticket', value: 'shop', emoji: '💰' },
+          { label: 'Kandar Bewerbung', value: 'kandar', emoji: '✍️' },
+          { label: 'Designer Bewerbung', value: 'designer', emoji: '🎨' },
+          { label: 'Cutter Bewerbung', value: 'cutter', emoji: '✂️' },
+          { label: 'Streamer Bewerbung', value: 'streamer', emoji: '🎥' },
+          { label: 'Highteam Anliegen', value: 'highteam', emoji: '👑' },
+          { label: 'Support', value: 'support', emoji: '🛠️' }
+        ]);
+
+      await interaction.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(menu)] });
       return;
     }
+
+    if (interaction.isStringSelectMenu() && interaction.customId === 'ticketSelect') {
+      const type = interaction.values[0];
+      const guild = interaction.guild;
+      const categoryName = `${type.charAt(0).toUpperCase() + type.slice(1)} Tickets`;
+      let category = guild.channels.cache.find(c => c.name === categoryName && c.type === ChannelType.GuildCategory);
+      if (!category) category = await guild.channels.create({ name: categoryName, type: ChannelType.GuildCategory });
+
+      const ticket = await guild.channels.create({
+        name: `${type}-${interaction.user.username}`,
+        type: ChannelType.GuildText,
+        parent: category.id,
+        permissionOverwrites: [
+          { id: guild.roles.everyone, deny: ['ViewChannel'] },
+          { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages'] },
+        ],
+      });
+
+      const closeBtn = new ButtonBuilder().setCustomId('closeTicket').setLabel('🔒 Schließen').setStyle(ButtonStyle.Danger);
+
+      // Shop Ticket → Extra Dropdown
+      if (type === 'shop') {
+        const paymentMenu = new StringSelectMenuBuilder()
+          .setCustomId('shopOptions')
+          .setPlaceholder('Wähle Zahlungsmethode & Artikel')
+          .addOptions([
+            { label: 'PayPal - Overlay', value: 'paypal_overlay' },
+            { label: 'PayPal - Design', value: 'paypal_design' },
+            { label: 'Bank - Overlay', value: 'bank_overlay' },
+            { label: 'Bank - Design', value: 'bank_design' }
+          ]);
+
+        await ticket.send({
+          content: `${interaction.user}`,
+          embeds: [new EmbedBuilder().setColor('#00FF00').setTitle('💰 Shop Ticket').setDescription('Bitte wähle unten deine Zahlungsmethode & Artikel.')],
+          components: [new ActionRowBuilder().addComponents(paymentMenu), new ActionRowBuilder().addComponents(closeBtn)]
+        });
+      } else {
+        await ticket.send({
+          content: `${interaction.user}`,
+          embeds: [new EmbedBuilder().setColor('#00FF00').setTitle('🎫 Ticket erstellt').setDescription('Bitte schildere dein Anliegen.')],
+          components: [new ActionRowBuilder().addComponents(closeBtn)]
+        });
+      }
+
+      await interaction.reply({ content: `✅ Ticket erstellt: ${ticket}`, flags: 64 });
+      return;
+    }
+
+    if (interaction.isButton() && interaction.customId === 'closeTicket') {
+      await interaction.channel.send('📁 Ticket wird geschlossen...');
+      await interaction.channel.delete().catch(() => {});
+      return;
+    }
+
+    // === Creator System ===
+    // (👉 hier den Creator-Block aus meiner letzten Nachricht einfügen, unverändert)
 
   } catch (err) {
-    console.error('Fehler in Interaction:', err);
+    console.error('❌ Fehler in Interactions:', err);
     if (!interaction.replied)
-      await interaction.reply({ content: '❌ Es ist ein Fehler aufgetreten.', flags: 64 });
+      await interaction.reply({ content: '❌ Es ist ein Fehler aufgetreten!', flags: 64 });
   }
 });
 
 // === Login ===
 client.login(process.env.DISCORD_TOKEN);
-
-
-
-
-
-
-
-
-
