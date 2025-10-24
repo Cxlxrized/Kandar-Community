@@ -18,7 +18,7 @@ import {
 import 'dotenv/config';
 import fs from 'fs';
 
-// === Client erstellen ===
+// === Client ===
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -28,7 +28,7 @@ const client = new Client({
   ],
 });
 
-// === Slash Commands definieren ===
+// === Slash Commands ===
 const commands = [
   new SlashCommandBuilder()
     .setName('paypal')
@@ -57,10 +57,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName('nuke')
     .setDescription('Löscht alle Nachrichten im aktuellen Channel')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
 ].map(c => c.toJSON());
 
-// === Commands registrieren ===
+// === Command Registrierung ===
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 (async () => {
   try {
@@ -78,7 +78,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 // === Ready ===
 client.once('ready', () => console.log(`🤖 Bot online als ${client.user.tag}`));
 
-// === Welcome-Embed ===
+// === Welcome Embed ===
 client.on('guildMemberAdd', async member => {
   const welcomeChannelId = process.env.WELCOME_CHANNEL_ID;
   const channel = member.guild.channels.cache.get(welcomeChannelId);
@@ -194,6 +194,7 @@ client.on('interactionCreate', async interaction => {
       const embed = new EmbedBuilder()
         .setTitle('🎫 Ticket-System')
         .setColor('#00FF00')
+        .setImage('https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif')
         .setDescription(
           `Bitte wähle unten deine Kategorie:\n\n` +
           `💰 **Shop Ticket**\n✍️ **Kandar Bewerbung**\n🎨 **Designer Bewerbung**\n✂️ **Cutter Bewerbung**\n🎥 **Streamer Bewerbung**\n👑 **Highteam Anliegen**\n🛠️ **Support**`
@@ -216,6 +217,7 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
+    // Ticket erstellen
     if (interaction.isStringSelectMenu() && interaction.customId === 'ticketSelect') {
       const type = interaction.values[0];
       const guild = interaction.guild;
@@ -235,28 +237,65 @@ client.on('interactionCreate', async interaction => {
 
       const closeBtn = new ButtonBuilder().setCustomId('closeTicket').setLabel('🔒 Schließen').setStyle(ButtonStyle.Danger);
 
-      // Shop Ticket → Extra Dropdown
+      // Shop Ticket mit Dropdown
       if (type === 'shop') {
-        const paymentMenu = new StringSelectMenuBuilder()
+        const shopMenu = new StringSelectMenuBuilder()
           .setCustomId('shopOptions')
           .setPlaceholder('Wähle Zahlungsmethode & Artikel')
           .addOptions([
             { label: 'PayPal - Overlay', value: 'paypal_overlay' },
             { label: 'PayPal - Design', value: 'paypal_design' },
             { label: 'Bank - Overlay', value: 'bank_overlay' },
-            { label: 'Bank - Design', value: 'bank_design' }
+            { label: 'Bank - Design', value: 'bank_design' },
           ]);
 
         await ticket.send({
           content: `${interaction.user}`,
-          embeds: [new EmbedBuilder().setColor('#00FF00').setTitle('💰 Shop Ticket').setDescription('Bitte wähle unten deine Zahlungsmethode & Artikel.')],
-          components: [new ActionRowBuilder().addComponents(paymentMenu), new ActionRowBuilder().addComponents(closeBtn)]
+          embeds: [new EmbedBuilder().setColor('#00FF00').setTitle('💰 Shop Ticket').setDescription('Bitte wähle unten Zahlungsmethode & Artikel.')],
+          components: [new ActionRowBuilder().addComponents(shopMenu), new ActionRowBuilder().addComponents(closeBtn)],
         });
-      } else {
+      }
+
+      // Streamer Bewerbung öffnet Modal
+      else if (type === 'streamer') {
+        const modal = new ModalBuilder()
+          .setCustomId('streamerBewerbung')
+          .setTitle('🎥 Streamer Bewerbung');
+
+        const followerInput = new TextInputBuilder()
+          .setCustomId('followers')
+          .setLabel('Follower Anzahl')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const avgViewerInput = new TextInputBuilder()
+          .setCustomId('avg_viewers')
+          .setLabel('Average Viewer')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const twitchLinkInput = new TextInputBuilder()
+          .setCustomId('twitch_link')
+          .setLabel('Twitch-Link')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(followerInput),
+          new ActionRowBuilder().addComponents(avgViewerInput),
+          new ActionRowBuilder().addComponents(twitchLinkInput)
+        );
+
+        await interaction.showModal(modal);
+        return;
+      }
+
+      // Alle anderen Tickets normal
+      else {
         await ticket.send({
           content: `${interaction.user}`,
           embeds: [new EmbedBuilder().setColor('#00FF00').setTitle('🎫 Ticket erstellt').setDescription('Bitte schildere dein Anliegen.')],
-          components: [new ActionRowBuilder().addComponents(closeBtn)]
+          components: [new ActionRowBuilder().addComponents(closeBtn)],
         });
       }
 
@@ -264,17 +303,53 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
+    // Streamer Bewerbung Modal submit
+    if (interaction.isModalSubmit() && interaction.customId === 'streamerBewerbung') {
+      const followers = interaction.fields.getTextInputValue('followers');
+      const avgViewers = interaction.fields.getTextInputValue('avg_viewers');
+      const twitchLink = interaction.fields.getTextInputValue('twitch_link');
+
+      const guild = interaction.guild;
+      const categoryName = `Streamer Tickets`;
+      let category = guild.channels.cache.find(c => c.name === categoryName && c.type === ChannelType.GuildCategory);
+      if (!category) category = await guild.channels.create({ name: categoryName, type: ChannelType.GuildCategory });
+
+      const ticket = await guild.channels.create({
+        name: `streamer-${interaction.user.username}`,
+        type: ChannelType.GuildText,
+        parent: category.id,
+        permissionOverwrites: [
+          { id: guild.roles.everyone, deny: ['ViewChannel'] },
+          { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages'] },
+        ],
+      });
+
+      const embed = new EmbedBuilder()
+        .setColor('#00FF00')
+        .setTitle('🎥 Streamer Bewerbung')
+        .addFields(
+          { name: 'Follower', value: followers, inline: true },
+          { name: 'Average Viewer', value: avgViewers, inline: true },
+          { name: 'Twitch-Link', value: twitchLink }
+        )
+        .setFooter({ text: `Streamer Bewerbung von ${interaction.user.username}` });
+
+      await ticket.send({ content: `${interaction.user}`, embeds: [embed] });
+      await interaction.reply({ content: `✅ Bewerbung erstellt: ${ticket}`, flags: 64 });
+      return;
+    }
+
+    // Ticket schließen
     if (interaction.isButton() && interaction.customId === 'closeTicket') {
       await interaction.channel.send('📁 Ticket wird geschlossen...');
       await interaction.channel.delete().catch(() => {});
       return;
     }
 
-    // === Creator System ===
-    // (👉 hier den Creator-Block aus meiner letzten Nachricht einfügen, unverändert)
+    // === Creator System (aus vorheriger Nachricht einfügen, unverändert) ===
 
   } catch (err) {
-    console.error('❌ Fehler in Interactions:', err);
+    console.error('❌ Fehler in Interaktionen:', err);
     if (!interaction.replied)
       await interaction.reply({ content: '❌ Es ist ein Fehler aufgetreten!', flags: 64 });
   }
