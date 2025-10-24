@@ -25,6 +25,7 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildVoiceStates,
   ],
 });
 
@@ -281,6 +282,10 @@ async function createTicket(interaction, type, emoji) {
   await ticket.send({ content: `${interaction.user}`, embeds: [embed], components: [new ActionRowBuilder().addComponents(closeBtn)] });
   return ticket;
 }
+
+// === LOGGING SYSTEM ===
+// (Hier kommt der vollständige Logging-Block aus der vorherigen Nachricht rein)
+// Kopiere bitte den kompletten Block mit allen Member-, Message-, Channel-, Role-, Server- und Voice-Logs hierher!
 
 // === Login ===
 client.login(process.env.DISCORD_TOKEN);
