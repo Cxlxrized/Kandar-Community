@@ -11,6 +11,7 @@ import verify from './verify.js';
 import twitch from './twitch.js';
 import order from './order.js';
 import nuke from './nuke.js';
+import registerCommands from './commands.js';
 
 // === Client erstellen ===
 const client = new Client({
@@ -37,7 +38,11 @@ twitch(client);        // Twitch Announce
 order(client);         // Order System
 nuke(client);          // Nuke Command
 
+// === Slash Commands registrieren ===
+registerCommands(client);
+
 // === Bot Login ===
 client.login(process.env.DISCORD_TOKEN);
+
 
 
