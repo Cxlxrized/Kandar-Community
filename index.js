@@ -9,9 +9,8 @@ import paypal from './paypal.js';
 import boost from './boost.js';
 import verify from './verify.js';
 import twitch from './twitch.js';
-import shop from './shop.js';
 import order from './order.js';
-import commands from './commands.js';
+import nuke from './nuke.js';
 
 // === Client erstellen ===
 const client = new Client({
@@ -29,15 +28,14 @@ app.get('/', (req, res) => res.send('✅ Bot läuft auf Railway!'));
 app.listen(process.env.PORT || 3000, () => console.log('🌍 Webserver läuft'));
 
 // === Module laden ===
-welcome(client);   // Welcome-Embed
-tickets(client);   // Ticket-System
-paypal(client);    // PayPal Command
-boost(client);     // Boost-Nachrichten
-verify(client);    // Verify Command
-twitch(client);    // Twitch Announce
-shop(client);      // Shop System
-order(client);     // Order System
-commands(client);  // Slash-Commands registrieren
+welcome(client);       // Welcome-Embed
+tickets(client);       // Ticket-System
+paypal(client);        // PayPal Command
+boost(client);         // Boost-Nachrichten
+verify(client);        // Verify Command
+twitch(client);        // Twitch Announce
+order(client);         // Order System
+nuke(client);          // Nuke Command
 
 // === Bot Login ===
 client.login(process.env.DISCORD_TOKEN);
