@@ -278,9 +278,10 @@ client.on("interactionCreate", async (i) => {
           `💰 **Shop Ticket** – Käufe & Bestellungen\n` +
           `🎥 **Streamer Bewerbung** – Bewirb dich als Creator\n` +
           `✍️ **Kandar Bewerbung** – Allgemeine Bewerbung\n` +
-          `🎨 **Designer Bewerbung** – Für Grafiker\n` +
-          `✂️ **Cutter Bewerbung** – Für Videoeditoren\n` +
-          `🛠️ **Highteam Anliegen** – Interne Anliegen`
+          `🎨 **Designer Bewerbung** – Deine Bewerbung als Designer Starten\n` +
+          `✂️ **Cutter Bewerbung** – Deine Bewerbung als Cutter Starten\n` +
+          `🛠️ **Highteam Anliegen** – Interne Anliegen\n`+
+          `👥 **Support Anliegen** – Support Anliegen\n`
         )
         .setImage(BANNER_URL);
 
@@ -294,6 +295,7 @@ client.on("interactionCreate", async (i) => {
           { label: "Designer Bewerbung", value: "designer", emoji: "🎨" },
           { label: "Cutter Bewerbung", value: "cutter", emoji: "✂️" },
           { label: "Highteam Anliegen", value: "highteam", emoji: "🛠️" },
+          { label: "Support Anliegen", value: "Support", emoji: "👥" },
         ]);
 
       return i.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(menu)] });
@@ -366,6 +368,7 @@ client.on("interactionCreate", async (i) => {
         designer: { title: "🎨 Designer Bewerbung", cat: "🎨 Designer Bewerbungen", desc: "Bitte sende dein Portfolio." },
         cutter: { title: "✂️ Cutter Bewerbung", cat: "✂️ Cutter Bewerbungen", desc: "Bitte nenne Software & Erfahrung." },
         highteam: { title: "🛠️ Highteam Ticket", cat: "🛠️ Highteam Anliegen", desc: "Beschreibe bitte dein Anliegen." },
+        Support: { title: "👥 Support Ticket", cat: "👥 Highteam Anliegen", desc: "Beschreibe bitte dein Anliegen." },
       };
       const data = map[choice];
       if (!data) return;
@@ -700,4 +703,5 @@ client.on("voiceStateUpdate", (o, n) => {
    Login
 =========================== */
 client.login(process.env.DISCORD_TOKEN);
+
 
