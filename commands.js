@@ -1,88 +1,44 @@
-import { REST, Routes, SlashCommandBuilder } from "discord.js";
-import "dotenv/config";
+import { SlashCommandBuilder } from 'discord.js';
 
-export default async function registerCommands(client) {
+export default (client) => {
   const commands = [
-    // === PayPal ===
-    new SlashCommandBuilder()
-      .setName("paypal")
-      .setDescription("💰 PayPal Zahlung erstellen")
-      .addNumberOption(opt =>
-        opt.setName("betrag")
-          .setDescription("Betrag in €")
-          .setRequired(true)
+    new SlashCommandBuilder().setName('ping').setDescription('Antwortet mit Pong!'),
+    new SlashCommandBuilder().setName('serverstats').setDescription('Zeigt Server-Statistiken an'),
+    new SlashCommandBuilder().setName('shop').setDescription('Erstelle ein Shop-Ticket (nur bestimmte Rollen)'),
+    new SlashCommandBuilder().setName('order').setDescription('Verwalte deine Bestellungen (nur bestimmte Rollen)').addStringOption(option =>
+      option.setName('artikel')
+            .setDescription('Artikel den du bestellen möchtest')
+            .setRequired(true)
+    ),
+    new SlashCommandBuilder().setName('verify').setDescription('Zeige die Regeln und erhalte die Rolle'),
+    new SlashCommandBuilder().setName('finish').setDescription('Markiere Feedback als erledigt (nur bestimmte Rollen)'),
+    new SlashCommandBuilder().setName('giveaway').setDescription('Giveaway erstellen / löschen / reroll')
+      .addStringOption(option =>
+        option.setName('aktion')
+              .setDescription('Erstellen, löschen oder rerollen')
+              .setRequired(true)
       ),
-
-    // === Ticket Embed erstellen ===
-    new SlashCommandBuilder()
-      .setName("ticketmsg")
-      .setDescription("🎫 Ticket Nachricht senden (Admin)"),
-
-    // === Finish / Kundenfeedback ===
-    new SlashCommandBuilder()
-      .setName("finish")
-      .setDescription("✅ Bestellung abschließen & Feedback abfragen"),
-
-    // === Verify Nachricht ===
-    new SlashCommandBuilder()
-      .setName("verify")
-      .setDescription("✅ Verify Embed senden"),
-
-    // === Giveaway Commands ===
-    new SlashCommandBuilder()
-      .setName("giveaway")
-      .setDescription("🎉 Giveaway verwalten")
-      .addSubcommand(sub =>
-        sub.setName("start")
-          .setDescription("🎉 Neues Giveaway starten")
-          .addStringOption(o => o.setName("dauer").setDescription("d = Tage, h = Stunden, m = Minuten").setRequired(true))
-          .addStringOption(o => o.setName("preis").setDescription("Gewinn").setRequired(true))
-          .addChannelOption(o => o.setName("kanal").setDescription("Kanal für das Giveaway").setRequired(true))
-      )
-      .addSubcommand(sub =>
-        sub.setName("delete")
-          .setDescription("🗑️ Giveaway löschen")
-          .addStringOption(o => o.setName("id").setDescription("Giveaway Message ID").setRequired(true))
-      )
-      .addSubcommand(sub =>
-        sub.setName("reroll")
-          .setDescription("🎲 Gewinner neu auslosen")
-          .addStringOption(o => o.setName("id").setDescription("Giveaway Message ID").setRequired(true))
-      ),
-
-    // === Bestellung System ===
-    new SlashCommandBuilder()
-      .setName("bestellung")
-      .setDescription("🛒 Bestellung anlegen & verwalten")
-      .addStringOption(opt =>
-        opt.setName("artikel")
-          .setDescription("Artikel den du bestellst")
-          .setRequired(true)
-      )
+    new SlashCommandBuilder().setName('paypal').setDescription('Erstelle einen PayPal-Link').addNumberOption(option =>
+      option.setName('betrag')
+            .setDescription('Betrag in Euro')
+            .setRequired(true)
+    )
   ].map(c => c.toJSON());
 
-  const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
-
-  try {
-    console.log("🔁 Lade Slash Commands ...");
-
-    // === Guild oder Global? ===
-    if (process.env.GUILD_ID) {
-      await rest.put(
-        Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-        { body: commands }
-      );
-      console.log("✅ Guild Commands erfolgreich geladen!");
-    } else {
-      await rest.put(
-        Routes.applicationCommands(process.env.CLIENT_ID),
-        { body: commands }
-      );
-      console.log("✅ Global Commands erfolgreich geladen!");
-    }
-
-  } catch (err) {
-    console.error("❌ Fehler beim Registrieren der Commands:", err);
-  }
-}
+  import('discord.js').then(({ REST, Routes }) => {
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    (async () => {
+      try {
+        console.log('🔄 Commands werden registriert/überschrieben...');
+        await rest.put(
+          Routes.applicationGuildCommands(process.env.BOT_ID, process.env.GUILD_ID),
+          { body: commands }
+        );
+        console.log('✅ Commands registriert!');
+      } catch (err) {
+        console.error('❌ Fehler beim Registrieren der Commands:', err);
+      }
+    })();
+  });
+};
 
