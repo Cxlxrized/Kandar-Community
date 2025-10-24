@@ -78,3 +78,5 @@ export default async function registerCommands(client) {
     console.error("❌ Command Fehler:", error);
   }
 }
+
+
