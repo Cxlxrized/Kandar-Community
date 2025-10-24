@@ -15,6 +15,7 @@ import {
   ChannelType,
   StringSelectMenuBuilder
 } from "discord.js";
+import fs from "fs";
 import "dotenv/config";
 
 // === Client ===
@@ -41,9 +42,20 @@ const commands = [
     .setDescription("Sendet das Ticket-Panel"),
 
   new SlashCommandBuilder()
+    .setName("verifymsg")
+    .setDescription("Sendet die Verify-Nachricht"),
+
+  new SlashCommandBuilder()
     .setName("nuke")
-    .setDescription("Löscht viele Nachrichten im aktuellen Channel")
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+    .setDescription("Löscht alle Nachrichten im Channel")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+
+  new SlashCommandBuilder()
+    .setName("creator")
+    .setDescription("Creator-System verwalten")
+    .addSubcommand(sub =>
+      sub.setName("add").setDescription("Erstellt ein Creator-Panel mit Social-Links")
+    ),
 ].map(c => c.toJSON());
 
 // === Commands registrieren ===
@@ -60,20 +72,18 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
   }
 })();
 
-// === Ready Event ===
+// === Ready ===
 client.once("ready", async () => {
   console.log(`🤖 Eingeloggt als ${client.user.tag}`);
 
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
-  if (!guild) return console.log("⚠️ Keine Guild gefunden!");
+  if (!guild) return;
 
   // === Server Stats Kategorie ===
   const categoryName = "📊 Server Stats";
   let category = guild.channels.cache.find(c => c.name === categoryName && c.type === ChannelType.GuildCategory);
-  if (!category) {
+  if (!category)
     category = await guild.channels.create({ name: categoryName, type: ChannelType.GuildCategory });
-    console.log("📈 Kategorie 'Server Stats' erstellt!");
-  }
 
   const stats = {
     members: "🧍‍♂️ Mitglieder",
@@ -82,9 +92,8 @@ client.once("ready", async () => {
     boosts: "💎 Boosts"
   };
 
-  for (const [key, name] of Object.entries(stats)) {
-    let ch = guild.channels.cache.find(c => c.parentId === category.id && c.name.startsWith(name));
-    if (!ch) {
+  for (const [_, name] of Object.entries(stats)) {
+    if (!guild.channels.cache.find(c => c.parentId === category.id && c.name.startsWith(name))) {
       await guild.channels.create({
         name: `${name}: 0`,
         type: ChannelType.GuildVoice,
@@ -114,12 +123,12 @@ client.once("ready", async () => {
     if (channels.boosts) await channels.boosts.setName(`${stats.boosts}: ${boosts}`);
   }
 
-  await updateStats();
+  updateStats();
   setInterval(updateStats, 5 * 60 * 1000);
   console.log("📊 Server Stats aktiv!");
 });
 
-// === Welcome Embed ===
+// === Welcome ===
 client.on("guildMemberAdd", async (member) => {
   const ch = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
   if (!ch) return;
@@ -151,25 +160,50 @@ client.on("guildMemberUpdate", async (oldM, newM) => {
 // === Interactions ===
 client.on("interactionCreate", async (i) => {
   try {
+    // === VERIFY ===
+    if (i.isChatInputCommand() && i.commandName === "verifymsg") {
+      const embed = new EmbedBuilder()
+        .setColor("#00FF00")
+        .setTitle("✅ Verifizierung")
+        .setDescription("Drücke unten auf **Verifizieren**, um Zugriff auf den Server zu erhalten!")
+        .setThumbnail("https://cdn.discordapp.com/emojis/856929703132184596.webp?size=96&quality=lossless");
+
+      const btn = new ButtonBuilder()
+        .setCustomId("verify_button")
+        .setLabel("Verifizieren")
+        .setStyle(ButtonStyle.Success);
+
+      const row = new ActionRowBuilder().addComponents(btn);
+      await i.reply({ embeds: [embed], components: [row] });
+    }
+
+    if (i.isButton() && i.customId === "verify_button") {
+      const role = i.guild.roles.cache.get(process.env.VERIFY_ROLE_ID);
+      if (!role) return i.reply({ content: "❌ Verify-Rolle nicht gefunden!", ephemeral: true });
+      if (i.member.roles.cache.has(role.id))
+        return i.reply({ content: "✅ Du bist bereits verifiziert!", ephemeral: true });
+
+      await i.member.roles.add(role);
+      return i.reply({ content: "🎉 Du bist jetzt verifiziert!", ephemeral: true });
+    }
+
     // === PAYPAL ===
     if (i.isChatInputCommand() && i.commandName === "paypal") {
       const amount = i.options.getNumber("betrag");
       if (!amount || amount <= 0)
-        return i.reply({ content: "⚠️ Ungültiger Betrag!", flags: 64 });
+        return i.reply({ content: "⚠️ Ungültiger Betrag!", ephemeral: true });
+
       const link = `https://www.paypal.com/paypalme/jonahborospreitzer/${amount}`;
       const embed = new EmbedBuilder()
         .setColor("#0099ff")
         .setTitle("💰 PayPal Zahlung")
         .setDescription(`Klicke auf den Button, um **${amount}€** zu zahlen.`)
         .setFooter({ text: "Kandar Community" });
-      const btn = new ButtonBuilder()
-        .setLabel(`Jetzt ${amount}€ zahlen`)
-        .setStyle(ButtonStyle.Link)
-        .setURL(link);
+      const btn = new ButtonBuilder().setLabel(`Jetzt ${amount}€ zahlen`).setStyle(ButtonStyle.Link).setURL(link);
       return i.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(btn)] });
     }
 
-    // === Ticket Panel (Dropdown) ===
+    // === TICKET SYSTEM ===
     if (i.isChatInputCommand() && i.commandName === "ticketmsg") {
       const embed = new EmbedBuilder()
         .setColor("#00FF00")
@@ -201,88 +235,25 @@ client.on("interactionCreate", async (i) => {
       return i.reply({ embeds: [embed], components: [row] });
     }
 
-    // === Dropdown Auswahl ===
+    // === Ticket Auswahl ===
     if (i.isStringSelectMenu() && i.customId === "ticket_select") {
       const choice = i.values[0];
-
-      const modalHandler = async (modalId, title, fields) => {
-        const modal = new ModalBuilder().setCustomId(modalId).setTitle(title);
-        modal.addComponents(fields.map(f =>
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId(f.id).setLabel(f.label).setStyle(f.style).setRequired(true)
-          )
-        ));
-        return i.showModal(modal);
+      const titles = {
+        shop: "💰 Shop Ticket",
+        streamer: "🎥 Streamer Bewerbung",
+        kandar: "✍️ Kandar Bewerbung",
+        designer: "🎨 Designer Bewerbung",
+        cutter: "✂️ Cutter Bewerbung",
+        highteam: "🛠️ Highteam Ticket",
       };
 
-      if (choice === "shop")
-        return modalHandler("modal_shop", "Shop Ticket erstellen", [
-          { id: "artikel", label: "Artikel", style: TextInputStyle.Short },
-          { id: "payment", label: "Zahlungsmethode", style: TextInputStyle.Short }
-        ]);
-
-      if (choice === "streamer")
-        return modalHandler("modal_streamer", "Streamer Bewerbung", [
-          { id: "follower", label: "Follower", style: TextInputStyle.Short },
-          { id: "average", label: "Average Viewer", style: TextInputStyle.Short },
-          { id: "twitch", label: "Twitch Link", style: TextInputStyle.Short }
-        ]);
-
-      const map = {
-        kandar: { cat: "✍️ Kandar Bewerbungen", title: "✍️ Kandar Bewerbung", desc: "Bitte schreibe deine Bewerbung hier." },
-        designer: { cat: "🎨 Designer Bewerbungen", title: "🎨 Designer Bewerbung", desc: "Bitte sende dein Portfolio." },
-        cutter: { cat: "✂️ Cutter Bewerbungen", title: "✂️ Cutter Bewerbung", desc: "Bitte nenne deine Software & Erfahrung." },
-        highteam: { cat: "🛠️ Highteam Anliegen", title: "🛠️ Highteam Ticket", desc: "Beschreibe bitte dein Anliegen." },
-      };
-      const data = map[choice];
-      if (!data) return;
-
+      const catName = `${titles[choice]}s`;
       const guild = i.guild;
-      let cat = guild.channels.cache.find(c => c.name === data.cat && c.type === ChannelType.GuildCategory);
-      if (!cat) cat = await guild.channels.create({ name: data.cat, type: ChannelType.GuildCategory });
-
-      const ch = await guild.channels.create({
-        name: `${data.title.split(" ")[0]}-${i.user.username}`,
-        type: ChannelType.GuildText,
-        parent: cat.id,
-        permissionOverwrites: [
-          { id: guild.roles.everyone.id, deny: ["ViewChannel"] },
-          { id: i.user.id, allow: ["ViewChannel", "SendMessages", "ReadMessageHistory"] },
-        ],
-      });
-
-      const embed = new EmbedBuilder().setColor("#00FF00").setTitle(data.title).setDescription(data.desc);
-      await ch.send({ content: `${i.user}`, embeds: [embed] });
-      const log = guild.channels.cache.get(process.env.TICKET_LOG_CHANNEL_ID);
-      if (log) log.send({ embeds: [embed.setTitle(`🧾 ${data.title} erstellt von ${i.user.username}`)] });
-      return i.reply({ content: `✅ Ticket erstellt: ${ch}`, flags: 64 });
-    }
-
-    // === Modals Submit ===
-    if (i.isModalSubmit()) {
-      const guild = i.guild;
-      let embed;
-      let catName;
-      if (i.customId === "modal_shop") {
-        const artikel = i.fields.getTextInputValue("artikel");
-        const payment = i.fields.getTextInputValue("payment");
-        embed = new EmbedBuilder().setColor("#00FF00").setTitle("💰 Shop Ticket").setDescription(`**Artikel:** ${artikel}\n**Zahlungsmethode:** ${payment}`);
-        catName = "💰 Shop Tickets";
-      }
-      if (i.customId === "modal_streamer") {
-        const follower = i.fields.getTextInputValue("follower");
-        const average = i.fields.getTextInputValue("average");
-        const twitch = i.fields.getTextInputValue("twitch");
-        embed = new EmbedBuilder().setColor("#00FF88").setTitle("🎥 Streamer Bewerbung").setDescription(`**Follower:** ${follower}\n**Average Viewer:** ${average}\n**Twitch:** ${twitch}`);
-        catName = "🎥 Streamer Bewerbungen";
-      }
-      if (!embed || !catName) return;
-
       let cat = guild.channels.cache.find(c => c.name === catName && c.type === ChannelType.GuildCategory);
       if (!cat) cat = await guild.channels.create({ name: catName, type: ChannelType.GuildCategory });
 
       const ch = await guild.channels.create({
-        name: `${embed.data.title.split(" ")[0]}-${i.user.username}`,
+        name: `${titles[choice].split(" ")[0]}-${i.user.username}`,
         type: ChannelType.GuildText,
         parent: cat.id,
         permissionOverwrites: [
@@ -291,16 +262,68 @@ client.on("interactionCreate", async (i) => {
         ],
       });
 
+      const embed = new EmbedBuilder().setColor("#00FF00").setTitle(titles[choice]).setDescription("Bitte beschreibe dein Anliegen.");
       await ch.send({ content: `${i.user}`, embeds: [embed] });
-      const log = guild.channels.cache.get(process.env.TICKET_LOG_CHANNEL_ID);
-      if (log) log.send({ embeds: [embed.setTitle(`🧾 Neues Ticket von ${i.user.username}`)] });
-      return i.reply({ content: `✅ Ticket erstellt: ${ch}`, flags: 64 });
+      return i.reply({ content: `✅ Ticket erstellt: ${ch}`, ephemeral: true });
     }
 
-    // === Nuke ===
+    // === CREATOR SYSTEM ===
+    if (i.isChatInputCommand() && i.commandName === "creator" && i.options.getSubcommand() === "add") {
+      const modal = new ModalBuilder().setCustomId("creatorAddModal").setTitle("Creator hinzufügen");
+      const fields = [
+        { id: "title", label: "Titel des Embeds", style: TextInputStyle.Short, req: true },
+        { id: "creatorId", label: "Discord-ID des Creators", style: TextInputStyle.Short, req: true },
+        { id: "twitch", label: "Twitch Link", style: TextInputStyle.Short, req: true },
+        { id: "youtube", label: "YouTube Link (Optional)", style: TextInputStyle.Short, req: false },
+        { id: "tiktok", label: "TikTok Link (Optional)", style: TextInputStyle.Short, req: false },
+        { id: "instagram", label: "Instagram Link (Optional)", style: TextInputStyle.Short, req: false },
+        { id: "code", label: "Creator Code (Optional)", style: TextInputStyle.Short, req: false },
+      ];
+      modal.addComponents(fields.map(f =>
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId(f.id).setLabel(f.label).setStyle(f.style).setRequired(f.req)
+        )
+      ));
+      return i.showModal(modal);
+    }
+
+    if (i.isModalSubmit() && i.customId === "creatorAddModal") {
+      const guild = i.guild;
+      const title = i.fields.getTextInputValue("title");
+      const creatorId = i.fields.getTextInputValue("creatorId");
+      const twitch = i.fields.getTextInputValue("twitch");
+      const youtube = i.fields.getTextInputValue("youtube") || "";
+      const tiktok = i.fields.getTextInputValue("tiktok") || "";
+      const instagram = i.fields.getTextInputValue("instagram") || "";
+      const code = i.fields.getTextInputValue("code") || "";
+
+      const member = guild.members.cache.get(creatorId);
+      if (member) {
+        const role = guild.roles.cache.find(r => r.name.toLowerCase() === "creator");
+        if (role) await member.roles.add(role).catch(() => null);
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor("#9b5de5")
+        .setTitle(title)
+        .addFields({ name: "Twitch", value: twitch });
+      if (youtube) embed.addFields({ name: "YouTube", value: youtube });
+      if (tiktok) embed.addFields({ name: "TikTok", value: tiktok });
+      if (instagram) embed.addFields({ name: "Instagram", value: instagram });
+      if (code) embed.addFields({ name: "Creator Code", value: code });
+
+      const msg = await i.reply({ embeds: [embed], fetchReply: true });
+      const file = "./data/creators.json";
+      const arr = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : [];
+      arr.push({ title, creatorId, twitch, youtube, tiktok, instagram, code, messageId: msg.id, channelId: msg.channel.id });
+      fs.writeFileSync(file, JSON.stringify(arr, null, 2));
+      return i.followUp({ content: "✅ Creator erstellt!", ephemeral: true });
+    }
+
+    // === NUKE ===
     if (i.isChatInputCommand() && i.commandName === "nuke") {
       const ch = i.channel;
-      await i.reply({ content: "⚠️ Channel wird geleert...", flags: 64 });
+      await i.reply({ content: "⚠️ Channel wird geleert...", ephemeral: true });
       let msgs;
       do {
         msgs = await ch.messages.fetch({ limit: 100 });
@@ -315,29 +338,19 @@ client.on("interactionCreate", async (i) => {
 });
 
 // === LOGGING SYSTEM ===
-
-// Member Logs
 client.on("guildMemberAdd", m => {
   const log = m.guild.channels.cache.get(process.env.MEMBER_LOGS_CHANNEL_ID);
   if (log) log.send({ embeds: [new EmbedBuilder().setColor("#00FF00").setTitle("👋 Neues Mitglied").setDescription(`${m} ist beigetreten.`)] });
 });
-
 client.on("guildMemberRemove", m => {
   const log = m.guild.channels.cache.get(process.env.MEMBER_LOGS_CHANNEL_ID);
   if (log) log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🚪 Mitglied hat verlassen").setDescription(`${m.user.tag} hat den Server verlassen.`)] });
 });
-
-// Message Logs
 client.on("messageDelete", msg => {
   if (!msg.guild || msg.author?.bot) return;
   const log = msg.guild.channels.cache.get(process.env.MESSAGE_LOGS_CHANNEL_ID);
-  if (!log) return;
-  const embed = new EmbedBuilder().setColor("#FF0000").setTitle("🗑 Nachricht gelöscht")
-    .setDescription(`Von ${msg.author}\nIn ${msg.channel}\n\n${msg.content || "[Embed/Datei]"}`);
-  log.send({ embeds: [embed] });
+  if (log) log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🗑 Nachricht gelöscht").setDescription(`Von ${msg.author}\nIn ${msg.channel}\n\n${msg.content || "[Embed/Datei]"}`)] });
 });
-
-// Channel Logs
 client.on("channelCreate", ch => {
   const log = ch.guild.channels.cache.get(process.env.CHANNEL_LOGS_CHANNEL_ID);
   if (log) log.send({ embeds: [new EmbedBuilder().setColor("#00FF00").setTitle("📢 Channel erstellt").setDescription(`${ch.name}`)] });
@@ -346,8 +359,6 @@ client.on("channelDelete", ch => {
   const log = ch.guild.channels.cache.get(process.env.CHANNEL_LOGS_CHANNEL_ID);
   if (log) log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🗑 Channel gelöscht").setDescription(`${ch.name}`)] });
 });
-
-// Role Logs
 client.on("roleCreate", r => {
   const log = r.guild.channels.cache.get(process.env.ROLE_LOGS_CHANNEL_ID);
   if (log) log.send({ embeds: [new EmbedBuilder().setColor("#00FF00").setTitle("🎭 Rolle erstellt").setDescription(`${r.name}`)] });
@@ -356,18 +367,6 @@ client.on("roleDelete", r => {
   const log = r.guild.channels.cache.get(process.env.ROLE_LOGS_CHANNEL_ID);
   if (log) log.send({ embeds: [new EmbedBuilder().setColor("#FF0000").setTitle("🎭 Rolle gelöscht").setDescription(`${r.name}`)] });
 });
-
-// Server Logs
-client.on("guildUpdate", (oldG, newG) => {
-  const log = newG.channels.cache.get(process.env.SERVER_LOGS_CHANNEL_ID);
-  if (!log) return;
-  const changes = [];
-  if (oldG.name !== newG.name) changes.push(`📛 Name geändert: **${oldG.name} → ${newG.name}**`);
-  if (oldG.icon !== newG.icon) changes.push(`🖼️ Servericon geändert.`);
-  if (changes.length) log.send({ embeds: [new EmbedBuilder().setColor("#FFD700").setTitle("⚙️ Server geändert").setDescription(changes.join("\n"))] });
-});
-
-// Voice Logs
 client.on("voiceStateUpdate", (o, n) => {
   const log = n.guild.channels.cache.get(process.env.VOICE_LOGS_CHANNEL_ID);
   if (!log) return;
