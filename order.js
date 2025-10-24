@@ -1,101 +1,140 @@
 import {
-  EmbedBuilder,
-  ActionRowBuilder,
-  StringSelectMenuBuilder,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle
+    SlashCommandBuilder,
+    ActionRowBuilder,
+    StringSelectMenuBuilder,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle,
+    EmbedBuilder
 } from 'discord.js';
-import 'dotenv/config';
 
-export default function order(client) {
+const allowedRoles = process.env.ORDER_ROLES?.split(",") || []; // mehrere Rollen möglich
+const orders = new Map(); // speichert Bestellungen pro User
 
-  const allowedRoles = process.env.ORDER_ROLES ? process.env.ORDER_ROLES.split(',') : [];
+export default {
+    data: new SlashCommandBuilder()
+        .setName('order')
+        .setDescription('Erstelle und verwalte eine Bestellung')
+        .addStringOption(option =>
+            option
+                .setName('artikel')
+                .setDescription('Welchen Artikel möchtest du bestellen?')
+                .setRequired(true)
+        ),
 
-  function hasPermission(member) {
-    if (allowedRoles.length === 0) return true;
-    return member.roles.cache.some(role => allowedRoles.includes(role.id));
-  }
+    async execute(interaction) {
+        const memberRoles = interaction.member.roles.cache.map(role => role.id);
 
-  client.on("interactionCreate", async (interaction) => {
+        // ✅ Rollenprüfung
+        if (!memberRoles.some(role => allowedRoles.includes(role))) {
+            return interaction.reply({
+                content: '❌ Du hast keine Berechtigung diesen Command zu benutzen!',
+                ephemeral: true
+            });
+        }
 
-    // ✅ Slash Command Abfrage
-    if (interaction.isChatInputCommand() && interaction.commandName === "bestellung") {
+        const item = interaction.options.getString('artikel');
+        const userId = interaction.user.id;
 
-      if (!hasPermission(interaction.member)) {
-        return interaction.reply({ content: "❌ Du hast keine Berechtigung, eine Bestellung zu erstellen!", ephemeral: true });
-      }
+        if (!orders.has(userId)) orders.set(userId, []);
+        orders.get(userId).push(item);
 
-      const artikel = interaction.options.getString("artikel");
-
-      const embed = new EmbedBuilder()
-        .setTitle("🛒 Bestellübersicht")
-        .setDescription(`📦 Artikel:\n- ${artikel}`)
-        .setColor("#00aaff");
-
-      const menu = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId("order_menu")
-          .setPlaceholder("Aktion auswählen …")
-          .addOptions([
-            { label: "Artikel hinzufügen ➕", value: "add" },
-            { label: "Bestellung abschließen ✅", value: "finish" }
-          ])
-      );
-
-      return interaction.reply({ embeds: [embed], components: [menu] });
-    }
-
-    // ✅ Menu handler
-    if (interaction.isStringSelectMenu() && interaction.customId === "order_menu") {
-
-      if (!hasPermission(interaction.member)) {
-        return interaction.reply({ content: "❌ Du darfst diese Bestellung nicht bearbeiten!", ephemeral: true });
-      }
-
-      const action = interaction.values[0];
-
-      if (action === "add") {
-        const modal = new ModalBuilder()
-          .setCustomId("order_add_modal")
-          .setTitle("Artikel hinzufügen");
-
-        const text = new TextInputBuilder()
-          .setCustomId("order_text")
-          .setLabel("Welcher Artikel?")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-
-        modal.addComponents(new ActionRowBuilder().addComponents(text));
-        return interaction.showModal(modal);
-      }
-
-      if (action === "finish") {
         const embed = new EmbedBuilder()
-          .setTitle("✅ Bestellung abgeschlossen")
-          .setDescription(`Vielen Dank für deine Bestellung!`)
-          .setColor("Green");
+            .setTitle('🛒 Bestellung Übersicht')
+            .setDescription(
+                orders.get(userId).map((i, index) => `**${index + 1}.** ${i}`).join('\n')
+            )
+            .setColor('#00A8FF')
+            .setFooter({ text: 'Verwende das Menü unten um fortzufahren!' });
 
-        await interaction.message.delete().catch(() => {});
-        return interaction.reply({ embeds: [embed] });
-      }
+        const menu = new StringSelectMenuBuilder()
+            .setCustomId('order-menu')
+            .setPlaceholder('Was möchtest du tun?')
+            .addOptions([
+                {
+                    label: 'Artikel hinzufügen',
+                    description: 'Füge einen weiteren Artikel hinzu',
+                    value: 'add-item'
+                },
+                {
+                    label: 'Bestellung abschließen',
+                    description: 'Beendet deine Bestellung',
+                    value: 'finish-order'
+                }
+            ]);
+
+        const row = new ActionRowBuilder().addComponents(menu);
+
+        await interaction.reply({ embeds: [embed], components: [row] });
+    },
+
+    async handleInteraction(interaction) {
+        const userId = interaction.user.id;
+
+        // ✅ Dropdown-Auswahl
+        if (interaction.customId === 'order-menu') {
+            const selection = interaction.values[0];
+
+            if (selection === 'add-item') {
+                const modal = new ModalBuilder()
+                    .setCustomId('order-modal')
+                    .setTitle('Artikel hinzufügen');
+
+                const input = new TextInputBuilder()
+                    .setCustomId('order-item')
+                    .setLabel('Neuer Artikel')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                const row = new ActionRowBuilder().addComponents(input);
+
+                modal.addComponents(row);
+                return interaction.showModal(modal);
+            }
+
+            if (selection === 'finish-order') {
+                orders.delete(userId);
+
+                const embed = new EmbedBuilder()
+                    .setTitle('✅ Bestellung abgeschlossen')
+                    .setDescription('Danke! Deine Bestellung wurde erfolgreich übermittelt ✅')
+                    .setColor('#00FF6E');
+
+                await interaction.update({ embeds: [embed], components: [] });
+            }
+        }
+
+        // ✅ Modal nach Eingabe
+        if (interaction.customId === 'order-modal') {
+            const item = interaction.fields.getTextInputValue('order-item');
+
+            if (!orders.has(userId)) orders.set(userId, []);
+            orders.get(userId).push(item);
+
+            const embed = new EmbedBuilder()
+                .setTitle('🛒 Bestellung Übersicht')
+                .setDescription(
+                    orders.get(userId).map((i, index) => `**${index + 1}.** ${i}`).join('\n')
+                )
+                .setColor('#00A8FF');
+
+            const menu = new StringSelectMenuBuilder()
+                .setCustomId('order-menu')
+                .addOptions(
+                    {
+                        label: 'Artikel hinzufügen',
+                        value: 'add-item'
+                    },
+                    {
+                        label: 'Bestellung abschließen',
+                        value: 'finish-order'
+                    }
+                );
+
+            const row = new ActionRowBuilder().addComponents(menu);
+
+            await interaction.reply({ embeds: [embed], components: [row] });
+        }
     }
+};
 
-    // ✅ Modal handler
-    if (interaction.isModalSubmit() && interaction.customId === "order_add_modal") {
-
-      if (!hasPermission(interaction.member)) {
-        return interaction.reply({ content: "❌ Keine Berechtigung!", ephemeral: true });
-      }
-
-      const text = interaction.fields.getTextInputValue("order_text");
-      const message = await interaction.channel.messages.fetch(interaction.message.id);
-      const oldEmbed = message.embeds[0];
-
-      const newEmbed = EmbedBuilder.from(oldEmbed)
-        .setDescription(oldEmbed.description + `\n- ${text}`);
-
-      return interaction.update({ embeds: [newEmbed] });
-    }
-  });
-}
