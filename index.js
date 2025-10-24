@@ -30,7 +30,6 @@ const client = new Client({
 
 // ===================== Hilfen & State =====================
 function parseDuration(input) {
-  // akzeptiert "1d", "2h", "30m" oder Sekunden als Zahl
   if (!input) return 0;
   const s = String(input).trim().toLowerCase();
   if (/^\d+$/.test(s)) return parseInt(s, 10) * 1000;
@@ -44,7 +43,7 @@ function parseDuration(input) {
   return 0;
 }
 
-const ordersMap = new Map(); // userId -> { channelId, msgId, items: [] }
+const ordersMap = new Map();   // userId -> { channelId, msgId, items: [] }
 const giveawayState = new Map(); // messageId -> { entrants:Set<userId>, winners:number, prize, timeoutId }
 
 // ===================== Commands definieren =====================
@@ -101,7 +100,16 @@ const commands = [
   new SlashCommandBuilder()
     .setName('nuke')
     .setDescription('Löscht viele Nachrichten im aktuellen Channel (nur bestimmte Rollen)')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+
+  // >>>>>>>>>>>>>>>>>>>> NEU: CREATOR COMMAND <<<<<<<<<<<<<<<<<<<<
+  new SlashCommandBuilder()
+    .setName('creator')
+    .setDescription('Creator verwalten')
+    .addSubcommand(sc =>
+      sc.setName('add')
+        .setDescription('Creator-Embed erstellen (Modal öffnen)')
+    )
 ].map(c => c.toJSON());
 
 // === Commands registrieren ===
@@ -153,14 +161,14 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // --- SERVERSTATS (nur zum Ausführen erneuter Aktualisierung, optional) ---
+    // --- SERVERSTATS ---
     if (interaction.isChatInputCommand() && interaction.commandName === 'serverstats') {
       await createOrUpdateStatsChannels(interaction.guild);
       await interaction.reply({ content: '✅ Serverstats aktualisiert!', flags: 64 });
       return;
     }
 
-    // --- PAYPAL COMMAND ---
+    // --- PAYPAL ---
     if (interaction.isChatInputCommand() && interaction.commandName === 'paypal') {
       try {
         const allowedRoles = process.env.PAYPAL_ROLES ? process.env.PAYPAL_ROLES.split(',') : [];
@@ -295,13 +303,11 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // --- Ticket-Schließung abbrechen ---
     if (interaction.isButton() && interaction.customId === 'cancel_close_ticket') {
       await interaction.update({ content: '❌ Ticket-Schließung abgebrochen!', components: [] });
       return;
     }
 
-    // --- Ticket-Schließung bestätigen + Transkript ---
     if (interaction.isButton() && interaction.customId === 'confirm_close_ticket') {
       await interaction.reply({ content: '📦 Erstelle Transkript und schließe das Ticket...' });
       const logChannelId = process.env.TICKET_LOG_CHANNEL_ID;
@@ -444,7 +450,6 @@ client.on('interactionCreate', async interaction => {
       if (interaction.values[0] === 'finish-order') {
         ordersMap.delete(interaction.user.id);
 
-        // optional: Customer Rolle geben
         const customerRoleId = process.env.CUSTOMER_ROLE_ID;
         if (customerRoleId) {
           const role = interaction.guild.roles.cache.get(customerRoleId);
@@ -522,7 +527,6 @@ client.on('interactionCreate', async interaction => {
       const targetId = interaction.customId.split('finish_feedback_modal_')[1];
       const feedbackText = interaction.fields.getTextInputValue('fb_text');
 
-      // Kunde Rolle zuweisen (optional)
       const customerRoleId = process.env.CUSTOMER_ROLE_ID;
       if (customerRoleId) {
         const role = interaction.guild.roles.cache.get(customerRoleId);
@@ -530,7 +534,6 @@ client.on('interactionCreate', async interaction => {
         if (role && member) await member.roles.add(role).catch(() => {});
       }
 
-      // Log optional
       const logChannelId = process.env.TICKET_LOG_CHANNEL_ID;
       const logChannel = interaction.guild.channels.cache.get(logChannelId);
       if (logChannel) {
@@ -545,11 +548,7 @@ client.on('interactionCreate', async interaction => {
         await logChannel.send({ embeds: [embed] });
       }
 
-      // ursprüngliche Nachricht (mit Button) löschen
-      try {
-        await interaction.message.delete().catch(() => {});
-      } catch {}
-
+      try { await interaction.message.delete().catch(() => {}); } catch {}
       await interaction.reply({ content: '✅ Danke für dein Feedback!', flags: 64 });
       return;
     }
@@ -631,7 +630,7 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // --- NUKE (Bestätigung per Buttons) ---
+    // --- NUKE (mit Bestätigung) ---
     if (interaction.isChatInputCommand() && interaction.commandName === 'nuke') {
       const allowedRoles = process.env.NUKE_ROLES ? process.env.NUKE_ROLES.split(',') : [];
       const memberRoles = interaction.member.roles.cache.map(r => r.id);
@@ -651,7 +650,6 @@ client.on('interactionCreate', async interaction => {
       if (interaction.customId === 'nuke_cancel') {
         return interaction.update({ content: '❌ Nuke abgebrochen.', components: [] });
       }
-      // confirm
       await interaction.update({ content: '⏳ Nuking... bitte warten.', components: [] });
       const channel = interaction.channel;
       try {
@@ -666,6 +664,145 @@ client.on('interactionCreate', async interaction => {
         console.error('Nuke Error:', e);
         try { await channel.send('❌ Fehler beim Nuking. (Hinweis: Nachrichten >14 Tage können nicht gelöscht werden)'); } catch {}
       }
+      return;
+    }
+
+    // >>>>>>>>>>>>>>>>>>>> NEU: /creator add – Modal anzeigen <<<<<<<<<<<<<<<<<<
+    if (interaction.isChatInputCommand() && interaction.commandName === 'creator') {
+      const sub = interaction.options.getSubcommand();
+      if (sub === 'add') {
+        const modal = new ModalBuilder()
+          .setCustomId('creatorAddModal')
+          .setTitle('Creator hinzufügen');
+
+        const titleInput = new TextInputBuilder()
+          .setCustomId('title')
+          .setLabel('Titel des Embeds')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const creatorIdInput = new TextInputBuilder()
+          .setCustomId('creatorId')
+          .setLabel('Discord-ID des Creators')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const twitchInput = new TextInputBuilder()
+          .setCustomId('twitch')
+          .setLabel('Twitch Link (Pflicht)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const tiktokInput = new TextInputBuilder()
+          .setCustomId('tiktok')
+          .setLabel('TikTok Link (Optional)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const youtubeInput = new TextInputBuilder()
+          .setCustomId('youtube')
+          .setLabel('YouTube Link (Optional)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const instaInput = new TextInputBuilder()
+          .setCustomId('instagram')
+          .setLabel('Instagram Link (Optional)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        const codeInput = new TextInputBuilder()
+          .setCustomId('code')
+          .setLabel('Creator Code (Optional)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        // Modal-Reihen
+        modal.addComponents([
+          new ActionRowBuilder().addComponents(titleInput),
+          new ActionRowBuilder().addComponents(creatorIdInput),
+          new ActionRowBuilder().addComponents(twitchInput),
+          new ActionRowBuilder().addComponents(tiktokInput),
+          new ActionRowBuilder().addComponents(youtubeInput),
+          new ActionRowBuilder().addComponents(instaInput),
+          new ActionRowBuilder().addComponents(codeInput)
+        ]);
+
+        await interaction.showModal(modal);
+        return;
+      }
+    }
+
+    // >>>>>>>>>>>>>>>>>>>> NEU: Creator Modal Submit <<<<<<<<<<<<<<<<<<
+    if (interaction.isModalSubmit() && interaction.customId === 'creatorAddModal') {
+      const title = interaction.fields.getTextInputValue('title');
+      const creatorId = interaction.fields.getTextInputValue('creatorId');
+      const twitch = interaction.fields.getTextInputValue('twitch');
+      const tiktok = interaction.fields.getTextInputValue('tiktok') || '';
+      const youtube = interaction.fields.getTextInputValue('youtube') || '';
+      const instagram = interaction.fields.getTextInputValue('instagram') || '';
+      const code = interaction.fields.getTextInputValue('code') || '';
+
+      const guild = interaction.guild;
+      if (!guild) return interaction.reply({ content: '❌ Guild nicht gefunden!', flags: 64 });
+
+      // Creator-Rolle vergeben
+      const creatorRoleName = process.env.CREATOR_ROLE_NAME || 'Creator';
+      try {
+        const member = await guild.members.fetch(creatorId).catch(() => null);
+        const role = guild.roles.cache.find(r => r.name === creatorRoleName);
+        if (member && role) await member.roles.add(role).catch(() => {});
+      } catch {}
+
+      // Embed
+      const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setColor('#9b5de5')
+        .addFields({ name: 'Twitch', value: twitch })
+        .setTimestamp();
+
+      if (tiktok) embed.addFields({ name: 'TikTok', value: tiktok });
+      if (youtube) embed.addFields({ name: 'YouTube', value: youtube });
+      if (instagram) embed.addFields({ name: 'Instagram', value: instagram });
+      if (code) embed.addFields({ name: 'Creator Code', value: code });
+
+      // Admin-Buttons (Bearbeiten/Löschen – Logik kann später ergänzt werden)
+      const adminRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('editCreator').setLabel('Bearbeiten').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('deleteCreator').setLabel('Löschen').setStyle(ButtonStyle.Danger)
+      );
+
+      // Social-Buttons
+      const socialRow = new ActionRowBuilder();
+      if (twitch) socialRow.addComponents(new ButtonBuilder().setLabel('Twitch').setStyle(ButtonStyle.Link).setURL(twitch));
+      if (tiktok) socialRow.addComponents(new ButtonBuilder().setLabel('TikTok').setStyle(ButtonStyle.Link).setURL(tiktok));
+      if (youtube) socialRow.addComponents(new ButtonBuilder().setLabel('YouTube').setStyle(ButtonStyle.Link).setURL(youtube));
+      if (instagram) socialRow.addComponents(new ButtonBuilder().setLabel('Instagram').setStyle(ButtonStyle.Link).setURL(instagram));
+
+      const message = await interaction.reply({ embeds: [embed], components: [adminRow, socialRow], fetchReply: true });
+
+      // JSON speichern
+      try {
+        const path = './data/creators.json';
+        const list = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path, 'utf8')) : [];
+        list.push({
+          title,
+          creatorId,
+          twitch,
+          tiktok,
+          youtube,
+          instagram,
+          code,
+          messageId: message.id,
+          channelId: message.channel.id
+        });
+        fs.mkdirSync('./data', { recursive: true });
+        fs.writeFileSync(path, JSON.stringify(list, null, 2));
+      } catch (e) {
+        console.error('Creator JSON save error:', e);
+      }
+
+      await interaction.followUp({ content: '✅ Creator erstellt und (falls möglich) Rolle vergeben!', flags: 64 });
       return;
     }
 
