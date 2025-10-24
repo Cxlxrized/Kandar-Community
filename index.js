@@ -235,25 +235,84 @@ client.on("interactionCreate", async (i) => {
       return i.reply({ embeds: [embed], components: [row] });
     }
 
-    // === Ticket Auswahl ===
+        // === Ticket Auswahl ===
     if (i.isStringSelectMenu() && i.customId === "ticket_select") {
       const choice = i.values[0];
+
+      // SHOP → öffnet Modal
+      if (choice === "shop") {
+        const modal = new ModalBuilder()
+          .setCustomId("shopTicketModal")
+          .setTitle("💰 Shop Ticket erstellen");
+
+        const payment = new TextInputBuilder()
+          .setCustomId("payment")
+          .setLabel("Zahlungsmethode (z.B. PayPal, Überweisung)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const item = new TextInputBuilder()
+          .setCustomId("item")
+          .setLabel("Artikel / Produktname")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(payment),
+          new ActionRowBuilder().addComponents(item)
+        );
+
+        return i.showModal(modal);
+      }
+
+      // STREAMER → öffnet Modal
+      if (choice === "streamer") {
+        const modal = new ModalBuilder()
+          .setCustomId("streamerTicketModal")
+          .setTitle("🎥 Streamer Bewerbung");
+
+        const follower = new TextInputBuilder()
+          .setCustomId("follower")
+          .setLabel("Follower (z.B. 1200)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const avgViewer = new TextInputBuilder()
+          .setCustomId("avg_viewer")
+          .setLabel("Durchschnittliche Viewer")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const twitch = new TextInputBuilder()
+          .setCustomId("twitch_link")
+          .setLabel("Twitch-Link")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(follower),
+          new ActionRowBuilder().addComponents(avgViewer),
+          new ActionRowBuilder().addComponents(twitch)
+        );
+
+        return i.showModal(modal);
+      }
+
+      // Alle anderen Ticket-Arten → sofort Channel
       const titles = {
-        shop: "💰 Shop Ticket",
-        streamer: "🎥 Streamer Bewerbung",
         kandar: "✍️ Kandar Bewerbung",
         designer: "🎨 Designer Bewerbung",
         cutter: "✂️ Cutter Bewerbung",
         highteam: "🛠️ Highteam Ticket",
       };
 
-      const catName = `${titles[choice]}s`;
+      const title = titles[choice];
       const guild = i.guild;
-      let cat = guild.channels.cache.find(c => c.name === catName && c.type === ChannelType.GuildCategory);
-      if (!cat) cat = await guild.channels.create({ name: catName, type: ChannelType.GuildCategory });
+      let cat = guild.channels.cache.find(c => c.name === `${title}s` && c.type === ChannelType.GuildCategory);
+      if (!cat) cat = await guild.channels.create({ name: `${title}s`, type: ChannelType.GuildCategory });
 
       const ch = await guild.channels.create({
-        name: `${titles[choice].split(" ")[0]}-${i.user.username}`,
+        name: `${title.split(" ")[0]}-${i.user.username}`,
         type: ChannelType.GuildText,
         parent: cat.id,
         permissionOverwrites: [
@@ -262,10 +321,80 @@ client.on("interactionCreate", async (i) => {
         ],
       });
 
-      const embed = new EmbedBuilder().setColor("#00FF00").setTitle(titles[choice]).setDescription("Bitte beschreibe dein Anliegen.");
+      const embed = new EmbedBuilder()
+        .setColor("#00FF00")
+        .setTitle(title)
+        .setDescription("Bitte beschreibe dein Anliegen ausführlich.");
+
       await ch.send({ content: `${i.user}`, embeds: [embed] });
       return i.reply({ content: `✅ Ticket erstellt: ${ch}`, ephemeral: true });
     }
+
+    // === SHOP TICKET MODAL SUBMIT ===
+    if (i.isModalSubmit() && i.customId === "shopTicketModal") {
+      const payment = i.fields.getTextInputValue("payment");
+      const item = i.fields.getTextInputValue("item");
+      const guild = i.guild;
+
+      const title = "💰 Shop Ticket";
+      const catName = "💰 Shop Tickets";
+      let cat = guild.channels.cache.find(c => c.name === catName && c.type === ChannelType.GuildCategory);
+      if (!cat) cat = await guild.channels.create({ name: catName, type: ChannelType.GuildCategory });
+
+      const ch = await guild.channels.create({
+        name: `shop-${i.user.username}`,
+        type: ChannelType.GuildText,
+        parent: cat.id,
+        permissionOverwrites: [
+          { id: guild.roles.everyone.id, deny: ["ViewChannel"] },
+          { id: i.user.id, allow: ["ViewChannel", "SendMessages", "ReadMessageHistory"] },
+        ],
+      });
+
+      const embed = new EmbedBuilder()
+        .setColor("#00FF00")
+        .setTitle(title)
+        .setDescription(`🧾 **Zahlungsmethode:** ${payment}\n📦 **Artikel:** ${item}`)
+        .setFooter({ text: "Bitte beschreibe dein Anliegen genauer." });
+
+      await ch.send({ content: `${i.user}`, embeds: [embed] });
+      return i.reply({ content: `✅ Shop Ticket erstellt: ${ch}`, ephemeral: true });
+    }
+
+    // === STREAMER TICKET MODAL SUBMIT ===
+    if (i.isModalSubmit() && i.customId === "streamerTicketModal") {
+      const follower = i.fields.getTextInputValue("follower");
+      const avgViewer = i.fields.getTextInputValue("avg_viewer");
+      const twitch = i.fields.getTextInputValue("twitch_link");
+      const guild = i.guild;
+
+      const title = "🎥 Streamer Bewerbung";
+      const catName = "🎥 Streamer Bewerbungen";
+      let cat = guild.channels.cache.find(c => c.name === catName && c.type === ChannelType.GuildCategory);
+      if (!cat) cat = await guild.channels.create({ name: catName, type: ChannelType.GuildCategory });
+
+      const ch = await guild.channels.create({
+        name: `streamer-${i.user.username}`,
+        type: ChannelType.GuildText,
+        parent: cat.id,
+        permissionOverwrites: [
+          { id: guild.roles.everyone.id, deny: ["ViewChannel"] },
+          { id: i.user.id, allow: ["ViewChannel", "SendMessages", "ReadMessageHistory"] },
+        ],
+      });
+
+      const embed = new EmbedBuilder()
+        .setColor("#5865F2")
+        .setTitle(title)
+        .setDescription(
+          `👤 **Follower:** ${follower}\n📈 **Average Viewer:** ${avgViewer}\n🔗 **Twitch:** ${twitch}`
+        )
+        .setFooter({ text: "Bitte warte auf eine Rückmeldung vom Team." });
+
+      await ch.send({ content: `${i.user}`, embeds: [embed] });
+      return i.reply({ content: `✅ Streamer Bewerbung erstellt: ${ch}`, ephemeral: true });
+    }
+
 
     // === CREATOR SYSTEM ===
     if (i.isChatInputCommand() && i.commandName === "creator" && i.options.getSubcommand() === "add") {
@@ -380,5 +509,6 @@ client.on("voiceStateUpdate", (o, n) => {
 
 // === Login ===
 client.login(process.env.DISCORD_TOKEN);
+
 
 
