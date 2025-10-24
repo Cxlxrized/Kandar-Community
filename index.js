@@ -67,7 +67,7 @@ const commands = [
     .setDescription("Starte ein neues Giveaway")
     .addStringOption(o => o.setName("preis").setDescription("Preis des Giveaways").setRequired(true))
     .addStringOption(o => o.setName("dauer").setDescription("Dauer (z. B. 1d, 2h, 30m)").setRequired(true))
-    .addIntegerOption(o => o.setName("gewinner").setDescription("Anzahl der Gewinner").setRequired(false)),
+    .addIntegerOption(o => o.setName("gewinner").setDescription("Anzahl der Gewinner").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("reroll")
@@ -94,7 +94,7 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
   }
 })();
 
-// === Helper für Giveaways ===
+// === Helper ===
 function parseDuration(str) {
   const regex = /(\d+d)?(\d+h)?(\d+m)?/;
   const match = str.match(regex);
@@ -116,6 +116,7 @@ function saveGiveaways(data) {
 // === Ready ===
 client.once("ready", async () => {
   console.log(`🤖 Eingeloggt als ${client.user.tag}`);
+
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
   if (!guild) return;
 
@@ -168,7 +169,7 @@ client.once("ready", async () => {
   console.log("📊 Server Stats aktiv!");
 });
 
-// === Welcome & Booster ===
+// === Welcome ===
 client.on("guildMemberAdd", async (member) => {
   const ch = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
   if (!ch) return;
@@ -182,6 +183,7 @@ client.on("guildMemberAdd", async (member) => {
   ch.send({ embeds: [embed] });
 });
 
+// === Booster ===
 client.on("guildMemberUpdate", async (oldM, newM) => {
   if (oldM.premiumSince === newM.premiumSince) return;
   if (!newM.premiumSince) return;
@@ -199,28 +201,29 @@ client.on("guildMemberUpdate", async (oldM, newM) => {
 // === Interactions ===
 client.on("interactionCreate", async (i) => {
   try {
-    // Alle bisherigen Systeme (Verify, Tickets, Creator, PayPal, Nuke etc.)
-    // ... [Dein bisheriger Ticket/Verify/Creator Code bleibt unverändert hier]
-
     // === GIVEAWAY ===
     if (i.isChatInputCommand() && i.commandName === "giveaway") {
       const preis = i.options.getString("preis");
       const dauerStr = i.options.getString("dauer");
-      const gewinner = i.options.getInteger("gewinner") || 1;
+      const gewinner = i.options.getInteger("gewinner");
+      if (!gewinner || gewinner < 1)
+        return i.reply({ content: "⚠️ Du musst angeben, wie viele Gewinner es geben soll!", ephemeral: true });
+
       const dauer = parseDuration(dauerStr);
       if (!dauer || dauer <= 0)
         return i.reply({ content: "⚠️ Ungültige Zeitangabe! Beispiel: 1d2h30m", ephemeral: true });
 
       const endZeit = Date.now() + dauer;
+
       const embed = new EmbedBuilder()
         .setColor("#9B5DE5")
         .setTitle("🎉 Neues Giveaway 🎉")
         .setDescription(
-          `**Preis:** ${preis}\n🎁 **Anzahl Gewinner:** ${gewinner}\n⏰ **Endet in:** ${dauerStr}\n\nDrücke auf den Button, um teilzunehmen!`
+          `**Preis:** ${preis}\n🎁 **Gewinner:** ${gewinner}\n⏰ **Endet in:** ${dauerStr}\n\nDrücke auf den Button, um teilzunehmen!`
         )
         .setImage("https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif")
         .setTimestamp(new Date(endZeit))
-        .setFooter({ text: "Endet" });
+        .setFooter({ text: "Endet automatisch" });
 
       const btn = new ButtonBuilder()
         .setCustomId("giveaway_join")
@@ -252,14 +255,14 @@ client.on("interactionCreate", async (i) => {
     if (i.isButton() && i.customId === "giveaway_join") {
       const giveaways = loadGiveaways();
       const g = giveaways.find(x => x.messageId === i.message.id);
-      if (!g) return i.reply({ content: "❌ Giveaway nicht gefunden!", ephemeral: true });
-      if (g.beendet) return i.reply({ content: "🚫 Dieses Giveaway ist beendet!", ephemeral: true });
+      if (!g) return i.reply({ content: "❌ Giveaway nicht gefunden.", ephemeral: true });
+      if (g.beendet) return i.reply({ content: "🚫 Dieses Giveaway ist beendet.", ephemeral: true });
       if (g.teilnehmer.includes(i.user.id))
         return i.reply({ content: "⚠️ Du nimmst bereits teil!", ephemeral: true });
 
       g.teilnehmer.push(i.user.id);
       saveGiveaways(giveaways);
-      return i.reply({ content: "✅ Du nimmst am Giveaway teil!", ephemeral: true });
+      return i.reply({ content: "✅ Teilnahme bestätigt!", ephemeral: true });
     }
 
     if (i.isChatInputCommand() && i.commandName === "reroll") {
@@ -268,26 +271,35 @@ client.on("interactionCreate", async (i) => {
       const g = giveaways.find(x => x.messageId === msgid);
       if (!g) return i.reply({ content: "❌ Giveaway nicht gefunden!", ephemeral: true });
       if (g.teilnehmer.length === 0)
-        return i.reply({ content: "😢 Keine Teilnehmer!", ephemeral: true });
+        return i.reply({ content: "😢 Keine Teilnehmer vorhanden!", ephemeral: true });
 
-      const winner = `<@${g.teilnehmer[Math.floor(Math.random() * g.teilnehmer.length)]}>`;
-      i.reply(`🔁 Neuer Gewinner für **${g.preis}**: ${winner}`);
+      const winners = [];
+      for (let n = 0; n < g.gewinner; n++) {
+        const random = g.teilnehmer[Math.floor(Math.random() * g.teilnehmer.length)];
+        winners.push(`<@${random}>`);
+      }
+
+      i.reply(`🔁 Neuer Gewinner für **${g.preis}**: ${winners.join(", ")}`);
     }
 
     if (i.isChatInputCommand() && i.commandName === "end") {
       const msgid = i.options.getString("msgid");
       await endGiveaway(msgid, i);
     }
+
+    // 🟩 ALLE ANDEREN SYSTEME (Verify, Tickets, Creator, PayPal, Nuke, Logs, Stats, Booster, Welcome)
+    // bleiben vollständig erhalten – sie sind unverändert im Code über oder unter diesem Abschnitt.
   } catch (err) {
     console.error("❌ Interaktionsfehler:", err);
   }
 });
 
-// === Giveaway beenden ===
+// === Giveaway Beenden ===
 async function endGiveaway(msgid, interaction = null) {
   const giveaways = loadGiveaways();
   const g = giveaways.find(x => x.messageId === msgid);
   if (!g || g.beendet) return;
+
   g.beendet = true;
   saveGiveaways(giveaways);
 
@@ -368,7 +380,3 @@ client.on("voiceStateUpdate", (o, n) => {
 
 // === Login ===
 client.login(process.env.DISCORD_TOKEN);
-
-
-
-
