@@ -1233,3 +1233,4 @@ app.listen(process.env.PORT || 3000, () =>
 client.login(DISCORD_TOKEN)
   .then(() => console.log("🤖 Bot erfolgreich eingeloggt!"))
   .catch(err => console.error("❌ Login fehlgeschlagen:", err));
+
