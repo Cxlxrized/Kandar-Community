@@ -13,13 +13,14 @@ import {
   ButtonStyle,
   PermissionFlagsBits,
   ChannelType,
-  StringSelectMenuBuilder
+  StringSelectMenuBuilder,
+  AttachmentBuilder,
 } from "discord.js";
 import fs from "fs";
 import "dotenv/config";
 
 /* ===========================
-   Client + Data Setup
+   Client + Data
 =========================== */
 const client = new Client({
   intents: [
@@ -32,12 +33,15 @@ const client = new Client({
   ],
 });
 
-// /data Ordner & Dateien
 if (!fs.existsSync("./data")) fs.mkdirSync("./data");
 const GIVEAWAY_FILE = "./data/giveaways.json";
 const CREATORS_FILE = "./data/creators.json";
+const TRANSCRIPT_DIR = "./data/transcripts";
 if (!fs.existsSync(GIVEAWAY_FILE)) fs.writeFileSync(GIVEAWAY_FILE, "[]");
 if (!fs.existsSync(CREATORS_FILE)) fs.writeFileSync(CREATORS_FILE, "[]");
+if (!fs.existsSync(TRANSCRIPT_DIR)) fs.mkdirSync(TRANSCRIPT_DIR);
+
+const BANNER_URL = "https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif";
 
 /* ===========================
    Slash Commands
@@ -80,7 +84,7 @@ const commands = [
     .setName("giveaway")
     .setDescription("Starte ein neues Giveaway")
     .addStringOption(o => o.setName("preis").setDescription("Preis").setRequired(true))
-    .addStringOption(o => o.setName("dauer").setDescription("z. B. 1d, 2h, 30m").setRequired(true))
+    .addStringOption(o => o.setName("dauer").setDescription("z. B. 1d 2h 30m").setRequired(true))
     .addIntegerOption(o => o.setName("gewinner").setDescription("Anzahl der Gewinner").setRequired(true)),
 
   new SlashCommandBuilder()
@@ -92,6 +96,11 @@ const commands = [
     .setName("end")
     .setDescription("Beende ein Giveaway vorzeitig")
     .addStringOption(o => o.setName("msgid").setDescription("Nachrichten-ID des Giveaways").setRequired(true)),
+
+  // Twitch Announce (manuell)
+  new SlashCommandBuilder()
+    .setName("streamannounce")
+    .setDescription("Postet ein Twitch-Stream-Announcement"),
 ].map(c => c.toJSON());
 
 // Commands registrieren
@@ -113,7 +122,7 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
 =========================== */
 function parseDuration(str) {
   if (!str) return 0;
-  const m = String(str).toLowerCase().match(/^(\d+d)?(\d+h)?(\d+m)?$/);
+  const m = str.toLowerCase().match(/^(\d+d)?(\d+h)?(\d+m)?$/);
   if (!m) return 0;
   let ms = 0;
   if (m[1]) ms += parseInt(m[1]) * 86400000;
@@ -124,8 +133,36 @@ function parseDuration(str) {
 const loadGiveaways = () => JSON.parse(fs.readFileSync(GIVEAWAY_FILE, "utf8"));
 const saveGiveaways = (arr) => fs.writeFileSync(GIVEAWAY_FILE, JSON.stringify(arr, null, 2));
 
+function ticketControlRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("ticket_close").setLabel("Schließen").setStyle(ButtonStyle.Secondary).setEmoji("🔒"),
+    new ButtonBuilder().setCustomId("ticket_transcript").setLabel("Transcript").setStyle(ButtonStyle.Primary).setEmoji("🧾"),
+    new ButtonBuilder().setCustomId("ticket_delete").setLabel("Löschen").setStyle(ButtonStyle.Danger).setEmoji("🗑️"),
+  );
+}
+
+async function makeTranscript(channel) {
+  const msgs = await channel.messages.fetch({ limit: 100 });
+  const sorted = Array.from(msgs.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+  let content = `Transcript für #${channel.name} (${channel.id})\nErstellt: ${new Date().toISOString()}\n\n`;
+  for (const m of sorted) {
+    const time = new Date(m.createdTimestamp).toISOString();
+    const author = `${m.author?.tag ?? "Unbekannt"} (${m.author?.id ?? "-"})`;
+    const text = m.content?.replace(/\n/g, "\n  ") || "";
+    content += `[${time}] ${author}:\n  ${text}\n`;
+    if (m.attachments?.size) {
+      for (const att of m.attachments.values()) {
+        content += `  [Anhang] ${att.url}\n`;
+      }
+    }
+  }
+  const filePath = `${TRANSCRIPT_DIR}/transcript_${channel.id}_${Date.now()}.txt`;
+  fs.writeFileSync(filePath, content, "utf8");
+  return filePath;
+}
+
 /* ===========================
-   Ready: Server Stats + Re-Arm Giveaways + Twitch Poll
+   Ready: Server Stats + Re-Arm Giveaways
 =========================== */
 client.once("ready", async () => {
   console.log(`🤖 Eingeloggt als ${client.user.tag}`);
@@ -187,16 +224,11 @@ client.once("ready", async () => {
     else setTimeout(() => endGiveaway(g.messageId).catch(() => {}), rest);
   }
   console.log(`🎉 Reaktivierte Giveaways: ${giveaways.filter(x => !x.beendet).length}`);
-
-  // Twitch: App-Token holen & Poll starten
-  initTwitchPolling().catch(err => console.error("❌ Twitch Poll init Fehler:", err));
 });
 
 /* ===========================
    Welcome + Booster Embeds
 =========================== */
-const BANNER_URL = "https://cdn.discordapp.com/attachments/1413564981777141981/1431085432690704495/kandar_banner.gif";
-
 client.on("guildMemberAdd", async (member) => {
   const ch = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
   if (!ch) return;
@@ -225,11 +257,11 @@ client.on("guildMemberUpdate", async (oldM, newM) => {
 });
 
 /* ===========================
-   Interaction Handler (alles in einem Listener)
+   Interactions (Verify, PayPal, Panel, Tickets, Creator, Nuke, Giveaway, Twitch)
 =========================== */
 client.on("interactionCreate", async (i) => {
   try {
-    /* ---- VERIFY PANEL + BUTTON ---- */
+    /* ---- VERIFY ---- */
     if (i.isChatInputCommand() && i.commandName === "verifymsg") {
       const embed = new EmbedBuilder()
         .setColor("#00FF00")
@@ -271,7 +303,7 @@ client.on("interactionCreate", async (i) => {
       return i.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(btn)] });
     }
 
-    /* ---- TICKET PANEL /panel ---- */
+    /* ---- TICKET PANEL ---- */
     if (i.isChatInputCommand() && i.commandName === "panel") {
       const embed = new EmbedBuilder()
         .setColor("#00FF00")
@@ -283,8 +315,8 @@ client.on("interactionCreate", async (i) => {
           `✍️ **Kandar Bewerbung** – Allgemeine Bewerbung\n` +
           `🎨 **Designer Bewerbung** – Deine Bewerbung als Designer starten\n` +
           `✂️ **Cutter Bewerbung** – Deine Bewerbung als Cutter starten\n` +
-          `🛠️ **Highteam Anliegen** – Interne Anliegen\n`+
-          `👥 **Support Anliegen** – Support Anliegen\n`
+          `🛠️ **Highteam Anliegen** – Interne Anliegen\n` +
+          `👥 **Support Anliegen** – Hilfe vom Team\n`
         )
         .setImage(BANNER_URL);
 
@@ -298,7 +330,7 @@ client.on("interactionCreate", async (i) => {
           { label: "Designer Bewerbung", value: "designer", emoji: "🎨" },
           { label: "Cutter Bewerbung", value: "cutter", emoji: "✂️" },
           { label: "Highteam Anliegen", value: "highteam", emoji: "🛠️" },
-          { label: "Support Anliegen", value: "Support", emoji: "👥" },
+          { label: "Support Anliegen", value: "support", emoji: "👥" },
         ]);
 
       return i.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(menu)] });
@@ -371,7 +403,7 @@ client.on("interactionCreate", async (i) => {
         designer: { title: "🎨 Designer Bewerbung", cat: "🎨 Designer Bewerbungen", desc: "Bitte sende dein Portfolio." },
         cutter: { title: "✂️ Cutter Bewerbung", cat: "✂️ Cutter Bewerbungen", desc: "Bitte nenne Software & Erfahrung." },
         highteam: { title: "🛠️ Highteam Ticket", cat: "🛠️ Highteam Anliegen", desc: "Beschreibe bitte dein Anliegen." },
-        Support: { title: "👥 Support Ticket", cat: "👥 Support Anliegen", desc: "Beschreibe bitte dein Anliegen." },
+        support: { title: "👥 Support Ticket", cat: "👥 Support Tickets", desc: "Beschreibe bitte dein Anliegen." },
       };
       const data = map[choice];
       if (!data) return;
@@ -387,22 +419,12 @@ client.on("interactionCreate", async (i) => {
         permissionOverwrites: [
           { id: guild.roles.everyone.id, deny: ["ViewChannel"] },
           { id: i.user.id, allow: ["ViewChannel", "SendMessages", "ReadMessageHistory"] },
+          ...(process.env.STAFF_ROLE_ID ? [{ id: process.env.STAFF_ROLE_ID, allow: ["ViewChannel", "SendMessages", "ReadMessageHistory"] }] : []),
         ],
       });
 
-      const embed = new EmbedBuilder()
-        .setColor("#00FF00")
-        .setTitle(data.title)
-        .setDescription(data.desc);
-
-      // Ticket-Controls
-      const controls = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId("ticket_claim").setLabel("Claim").setStyle(ButtonStyle.Secondary).setEmoji("🧷"),
-        new ButtonBuilder().setCustomId("ticket_close").setLabel("Schließen").setStyle(ButtonStyle.Danger).setEmoji("🔒"),
-        new ButtonBuilder().setCustomId("ticket_delete").setLabel("Löschen").setStyle(ButtonStyle.Secondary).setEmoji("🗑️")
-      );
-
-      await ch.send({ content: `${i.user}`, embeds: [embed], components: [controls] });
+      const embed = new EmbedBuilder().setColor("#00FF00").setTitle(data.title).setDescription(data.desc);
+      await ch.send({ content: `${i.user}`, embeds: [embed], components: [ticketControlRow()] });
       return i.reply({ content: `✅ Ticket erstellt: ${ch}`, ephemeral: true });
     }
 
@@ -423,6 +445,7 @@ client.on("interactionCreate", async (i) => {
         permissionOverwrites: [
           { id: guild.roles.everyone.id, deny: ["ViewChannel"] },
           { id: i.user.id, allow: ["ViewChannel", "SendMessages", "ReadMessageHistory"] },
+          ...(process.env.STAFF_ROLE_ID ? [{ id: process.env.STAFF_ROLE_ID, allow: ["ViewChannel", "SendMessages", "ReadMessageHistory"] }] : []),
         ],
       });
 
@@ -432,13 +455,7 @@ client.on("interactionCreate", async (i) => {
         .setDescription(`🧾 **Zahlungsmethode:** ${payment}\n📦 **Artikel:** ${item}`)
         .setFooter({ text: "Bitte beschreibe dein Anliegen genauer." });
 
-      const controls = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId("ticket_claim").setLabel("Claim").setStyle(ButtonStyle.Secondary).setEmoji("🧷"),
-        new ButtonBuilder().setCustomId("ticket_close").setLabel("Schließen").setStyle(ButtonStyle.Danger).setEmoji("🔒"),
-        new ButtonBuilder().setCustomId("ticket_delete").setLabel("Löschen").setStyle(ButtonStyle.Secondary).setEmoji("🗑️")
-      );
-
-      await ch.send({ content: `${i.user}`, embeds: [embed], components: [controls] });
+      await ch.send({ content: `${i.user}`, embeds: [embed], components: [ticketControlRow()] });
       return i.reply({ content: `✅ Shop Ticket erstellt: ${ch}`, ephemeral: true });
     }
 
@@ -460,6 +477,7 @@ client.on("interactionCreate", async (i) => {
         permissionOverwrites: [
           { id: guild.roles.everyone.id, deny: ["ViewChannel"] },
           { id: i.user.id, allow: ["ViewChannel", "SendMessages", "ReadMessageHistory"] },
+          ...(process.env.STAFF_ROLE_ID ? [{ id: process.env.STAFF_ROLE_ID, allow: ["ViewChannel", "SendMessages", "ReadMessageHistory"] }] : []),
         ],
       });
 
@@ -469,55 +487,36 @@ client.on("interactionCreate", async (i) => {
         .setDescription(`👤 **Follower:** ${follower}\n📈 **Average Viewer:** ${avgViewer}\n🔗 **Twitch:** ${twitch}`)
         .setFooter({ text: "Bitte warte auf eine Rückmeldung vom Team." });
 
-      const controls = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId("ticket_claim").setLabel("Claim").setStyle(ButtonStyle.Secondary).setEmoji("🧷"),
-        new ButtonBuilder().setCustomId("ticket_close").setLabel("Schließen").setStyle(ButtonStyle.Danger).setEmoji("🔒"),
-        new ButtonBuilder().setCustomId("ticket_delete").setLabel("Löschen").setStyle(ButtonStyle.Secondary).setEmoji("🗑️")
-      );
-
-      await ch.send({ content: `${i.user}`, embeds: [embed], components: [controls] });
+      await ch.send({ content: `${i.user}`, embeds: [embed], components: [ticketControlRow()] });
       return i.reply({ content: `✅ Streamer Bewerbung erstellt: ${ch}`, ephemeral: true });
     }
 
-    /* ---- Ticket Controls: Claim/Close/Delete ---- */
-    if (i.isButton() && ["ticket_claim","ticket_close","ticket_delete"].includes(i.customId)) {
-      const chan = i.channel;
-      if (!chan || chan.type !== ChannelType.GuildText) return;
+    /* ---- Ticket Buttons (Schließen / Transcript / Löschen) ---- */
+    if (i.isButton() && ["ticket_close", "ticket_transcript", "ticket_delete"].includes(i.customId)) {
+      const channel = i.channel;
 
-      // Claim
-      if (i.customId === "ticket_claim") {
-        await i.reply({ content: `🧷 Ticket von <@${i.user.id}> geclaimt von ${i.member}.`, ephemeral: false });
-      }
-
-      // Close -> User Schreibrechte entziehen
       if (i.customId === "ticket_close") {
-        const opener = chan.members.find(m => !m.user.bot); // heuristisch
-        const openerId = opener?.id;
-        const overwrites = chan.permissionOverwrites.resolve(openerId || i.user.id);
-        try {
-          await chan.permissionOverwrites.edit(openerId || i.user.id, { SendMessages: false, ViewChannel: true, ReadMessageHistory: true });
-          await i.reply({ content: `🔒 Ticket geschlossen. Nur Team kann schreiben.`, ephemeral: false });
-        } catch {
-          await i.reply({ content: `❌ Konnte Rechte nicht setzen.`, ephemeral: true });
-        }
+        // entzieht dem Ticket-Ersteller Schreibrechte
+        await channel.permissionOverwrites.edit(i.user.id, { SendMessages: false }).catch(() => {});
+        await i.reply({ content: "🔒 Ticket geschlossen (Schreiben deaktiviert).", ephemeral: true });
+        return;
       }
 
-      // Delete -> Sicherheitsabfrage über Buttons
+      if (i.customId === "ticket_transcript") {
+        await i.deferReply({ ephemeral: true });
+        const filePath = await makeTranscript(channel);
+        const file = new AttachmentBuilder(filePath);
+        await i.editReply({ content: "🧾 Transcript erstellt.", files: [file] });
+        return;
+      }
+
       if (i.customId === "ticket_delete") {
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId("ticket_delete_confirm").setLabel("Löschen bestätigen").setStyle(ButtonStyle.Danger).setEmoji("🗑️"),
-          new ButtonBuilder().setCustomId("ticket_delete_cancel").setLabel("Abbrechen").setStyle(ButtonStyle.Secondary)
-        );
-        return i.reply({ content: "⚠️ Bist du sicher, dass dieses Ticket gelöscht werden soll?", components: [row], ephemeral: true });
+        await i.reply({ content: "⏳ Ticket wird in 5 Sekunden gelöscht...", ephemeral: true });
+        setTimeout(async () => {
+          try { await channel.delete(); } catch {}
+        }, 5000);
+        return;
       }
-    }
-
-    if (i.isButton() && ["ticket_delete_confirm","ticket_delete_cancel"].includes(i.customId)) {
-      if (i.customId === "ticket_delete_cancel") {
-        return i.update({ content: "Abgebrochen.", components: [] });
-      }
-      await i.update({ content: "🗑️ Ticket wird gelöscht…", components: [] });
-      setTimeout(() => i.channel?.delete().catch(() => {}), 1500);
     }
 
     /* ---- CREATOR ADD ---- */
@@ -556,10 +555,7 @@ client.on("interactionCreate", async (i) => {
         if (role) await member.roles.add(role).catch(() => null);
       }
 
-      const embed = new EmbedBuilder()
-        .setColor("#9b5de5")
-        .setTitle(title)
-        .addFields({ name: "Twitch", value: twitch });
+      const embed = new EmbedBuilder().setColor("#9b5de5").setTitle(title).addFields({ name: "Twitch", value: twitch });
       if (youtube) embed.addFields({ name: "YouTube", value: youtube });
       if (tiktok) embed.addFields({ name: "TikTok", value: tiktok });
       if (instagram) embed.addFields({ name: "Instagram", value: instagram });
@@ -605,7 +601,7 @@ client.on("interactionCreate", async (i) => {
       const embed = new EmbedBuilder()
         .setColor("#9B5DE5")
         .setTitle("🎉 Neues Giveaway 🎉")
-        .setDescription(`**Preis:** ${preis}\n🎁 **Gewinner:** ${gewinner}\n⏰ **Endet in:** ${dauerStr}\n\nKlicke unten, um teilzunehmen!`)
+        .setDescription(`**Preis:** ${preis}\n🎁 **Gewinner:** ${gewinner}\n👥 **Teilnehmer:** 0\n⏰ **Endet in:** ${dauerStr}\n\nKlicke unten, um teilzunehmen!`)
         .setImage(BANNER_URL)
         .setTimestamp(new Date(endZeit))
         .setFooter({ text: "Endet automatisch" });
@@ -646,6 +642,17 @@ client.on("interactionCreate", async (i) => {
 
       g.teilnehmer.push(i.user.id);
       saveGiveaways(giveaways);
+
+      // Embed aktualisieren: Teilnehmer-Zahl
+      const msg = i.message;
+      const old = msg.embeds?.[0];
+      const updated = EmbedBuilder.from(old)
+        .setDescription(
+          old.description
+            .replace(/👥 \*\*Teilnehmer:\*\* \d+/, `👥 **Teilnehmer:** ${g.teilnehmer.length}`)
+        );
+      await msg.edit({ embeds: [updated] });
+
       return i.reply({ content: "✅ Teilnahme gespeichert!", ephemeral: true });
     }
 
@@ -661,6 +668,37 @@ client.on("interactionCreate", async (i) => {
 
     if (i.isChatInputCommand() && i.commandName === "end") {
       await endGiveaway(i.options.getString("msgid"), i);
+    }
+
+    /* ---- TWITCH ANNOUNCE ---- */
+    if (i.isChatInputCommand() && i.commandName === "streamannounce") {
+      const twitchUser = (process.env.TWITCH_USER || "").toLowerCase().trim();
+      const targetChannelId = process.env.TWITCH_CHANNEL_ID;
+      if (!twitchUser || !targetChannelId)
+        return i.reply({ content: "❌ Bitte TWITCH_USER und TWITCH_CHANNEL_ID in .env setzen.", ephemeral: true });
+
+      const channel = await client.channels.fetch(targetChannelId).catch(() => null);
+      if (!channel || channel.type !== ChannelType.GuildText)
+        return i.reply({ content: "❌ Twitch-Announce Channel ungültig.", ephemeral: true });
+
+      const previewUrl = `https://static-cdn.jtvnw.net/previews-ttv/live_user_${twitchUser}-1280x720.jpg?rand=${Date.now()}`;
+      const twitchUrl = `https://twitch.tv/${twitchUser}`;
+
+      const embed = new EmbedBuilder()
+        .setColor("#9146FF")
+        .setTitle("🔴 Live auf Twitch")
+        .setDescription(`**${twitchUser}** ist jetzt live!\n\nKommt vorbei 👉 ${twitchUrl}`)
+        .setImage(previewUrl)
+        .setFooter({ text: "Kandar Streaming" })
+        .setTimestamp();
+
+      const btn = new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel("Jetzt anschauen")
+        .setURL(twitchUrl);
+
+      await channel.send({ embeds: [embed], components: [new ActionRowBuilder().addComponents(btn)] });
+      return i.reply({ content: "✅ Stream-Announcement gesendet!", ephemeral: true });
     }
 
   } catch (err) {
@@ -686,7 +724,7 @@ async function endGiveaway(msgid, interaction = null) {
     if (!g.teilnehmer.length) {
       const embed = EmbedBuilder.from(msg.embeds[0])
         .setColor("#808080")
-        .setDescription(`**Preis:** ${g.preis}\n❌ Keine Teilnehmer 😢`)
+        .setDescription(`**Preis:** ${g.preis}\n👥 **Teilnehmer:** 0\n❌ Keine Teilnehmer 😢`)
         .setFooter({ text: "Giveaway beendet" });
       await msg.edit({ embeds: [embed], components: [] });
       if (interaction) await interaction.reply({ content: "❌ Keine Teilnehmer. Giveaway beendet.", ephemeral: true });
@@ -696,7 +734,7 @@ async function endGiveaway(msgid, interaction = null) {
     const winners = Array.from({ length: g.gewinner }, () => `<@${g.teilnehmer[Math.floor(Math.random() * g.teilnehmer.length)]}>`);
     const embed = EmbedBuilder.from(msg.embeds[0])
       .setColor("#9B5DE5")
-      .setDescription(`**Preis:** ${g.preis}\n🏆 Gewinner: ${winners.join(", ")}`)
+      .setDescription(`**Preis:** ${g.preis}\n🏆 Gewinner: ${winners.join(", ")}\n👥 **Teilnehmer:** ${g.teilnehmer.length}`)
       .setFooter({ text: "Giveaway beendet" });
 
     await msg.edit({ embeds: [embed], components: [] });
@@ -767,106 +805,6 @@ client.on("voiceStateUpdate", (o, n) => {
 });
 
 /* ===========================
-   Twitch Stream Announcement
-=========================== */
-let twitchAppToken = null;
-let twitchTokenExp = 0;
-let lastLiveState = false; // false = offline, true = live
-const TWITCH_USER = (process.env.TWITCH_CHANNEL || "").toLowerCase();
-
-async function getTwitchAppToken() {
-  if (twitchAppToken && Date.now() < twitchTokenExp - 60_000) return twitchAppToken;
-  const params = new URLSearchParams();
-  params.append("client_id", process.env.TWITCH_CLIENT_ID || "");
-  params.append("client_secret", process.env.TWITCH_CLIENT_SECRET || "");
-  params.append("grant_type", "client_credentials");
-
-  const res = await fetch("https://id.twitch.tv/oauth2/token", { method: "POST", body: params });
-  if (!res.ok) throw new Error(`Twitch Token HTTP ${res.status}`);
-  const data = await res.json();
-  twitchAppToken = data.access_token;
-  twitchTokenExp = Date.now() + (data.expires_in || 3600) * 1000;
-  return twitchAppToken;
-}
-
-async function fetchTwitchUser(accessToken, login) {
-  const res = await fetch(`https://api.twitch.tv/helix/users?login=${encodeURIComponent(login)}`, {
-    headers: {
-      "Client-ID": process.env.TWITCH_CLIENT_ID || "",
-      "Authorization": `Bearer ${accessToken}`
-    }
-  });
-  if (!res.ok) throw new Error(`Twitch users HTTP ${res.status}`);
-  const data = await res.json();
-  return data.data?.[0] || null;
-}
-
-async function fetchTwitchStreams(accessToken, userId) {
-  const res = await fetch(`https://api.twitch.tv/helix/streams?user_id=${encodeURIComponent(userId)}`, {
-    headers: {
-      "Client-ID": process.env.TWITCH_CLIENT_ID || "",
-      "Authorization": `Bearer ${accessToken}`
-    }
-  });
-  if (!res.ok) throw new Error(`Twitch streams HTTP ${res.status}`);
-  const data = await res.json();
-  return data.data || [];
-}
-
-async function initTwitchPolling() {
-  if (!TWITCH_USER || !process.env.STREAM_ANNOUNCE_CHANNEL_ID || !process.env.TWITCH_CLIENT_ID || !process.env.TWITCH_CLIENT_SECRET) {
-    console.log("ℹ️ Twitch Announcement deaktiviert (ENV unvollständig).");
-    return;
-  }
-  const access = await getTwitchAppToken();
-  const user = await fetchTwitchUser(access, TWITCH_USER);
-  if (!user) {
-    console.log(`❌ Twitch-User '${TWITCH_USER}' nicht gefunden.`);
-    return;
-  }
-
-  setInterval(async () => {
-    try {
-      const token = await getTwitchAppToken();
-      const streams = await fetchTwitchStreams(token, user.id);
-      const isLive = streams.length > 0;
-      if (isLive && !lastLiveState) {
-        // gerade live gegangen -> ankündigen
-        const s = streams[0];
-        const ch = await client.channels.fetch(process.env.STREAM_ANNOUNCE_CHANNEL_ID).catch(() => null);
-        if (!ch) return;
-
-        const previewUrl = `https://static-cdn.jtvnw.net/previews-ttv/live_user_${TWITCH_USER}-1280x720.jpg?rand=${Date.now()}`;
-
-        const embed = new EmbedBuilder()
-          .setColor("#9146FF") // Twitch-Lila
-          .setTitle(`🔴 ${user.display_name} ist jetzt LIVE!`)
-          .setDescription(`**${s.title || "Live auf Twitch"}**\n\nKategorie: **${s.game_name || "—"}**\nZuschauer: **${s.viewer_count ?? 0}**\n\n[➡️ Jetzt ansehen](https://twitch.tv/${TWITCH_USER})`)
-          .setImage(previewUrl)
-          .setFooter({ text: "Kandar Streaming" })
-          .setTimestamp(new Date(s.started_at || Date.now()));
-
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setStyle(ButtonStyle.Link)
-            .setLabel("Auf Twitch ansehen")
-            .setURL(`https://twitch.tv/${TWITCH_USER}`)
-        );
-
-        await ch.send({ content: "@here", embeds: [embed], components: [row] });
-      }
-      lastLiveState = isLive;
-    } catch (e) {
-      console.error("Twitch Poll Fehler:", e.message);
-    }
-  }, 60_000); // alle 60s prüfen
-}
-
-/* ===========================
    Login
 =========================== */
 client.login(process.env.DISCORD_TOKEN);
-
-
-
-
