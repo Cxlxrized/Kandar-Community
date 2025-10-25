@@ -727,17 +727,7 @@ client.on("interactionCreate", async (i) => {
   }
 });
 // index.js — Teil 2/2 (fortgesetzt)
-import {
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
-  ChannelType,
-} from "discord.js";
-import fs from "fs";
+
 
 /* ===========================
    ORDER SYSTEM (ohne Ticket)
@@ -1097,3 +1087,4 @@ client.on("voiceStateUpdate", (o, n) => {
    Login
 =========================== */
 client.login(process.env.DISCORD_TOKEN);
+
