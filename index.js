@@ -707,72 +707,160 @@ client.on("interactionCreate", async (i) => {
       feedbackDrafts.delete(i.user.id);
     }
 
-    /* ---- ORDER SYSTEM (kein Ticket, Embed mit Dropdown & Modal fürs Hinzufügen) ---- */
-    if (i.isChatInputCommand() && i.commandName === "order") {
-      const kunde = i.options.getUser("kunde");
-      const artikel = i.options.getString("artikel");
-      const preis = i.options.getNumber("preis");
+   /* ---- ORDER SYSTEM (kein Ticket, Embed mit Buttons & Artikel entfernen) ---- */
+if (i.isChatInputCommand() && i.commandName === "order") {
+  const kunde = i.options.getUser("kunde");
+  const artikel = i.options.getString("artikel");
+  const preis = i.options.getNumber("preis");
 
-      // Datenstruktur vorbereiten
-      const orders = loadJson(ORDERS_FILE);
-      const items = [{ name: artikel, price: preis }];
+  const orders = loadJson(ORDERS_FILE);
+  const items = [{ name: artikel, price: preis }];
 
-      const sum = items.reduce((a, b) => a + b.price, 0);
-      const embed = new EmbedBuilder()
-        .setColor("#00c851")
-        .setTitle(`🧾 Bestellung von (${kunde.tag})`)
-        .setDescription(`🛒 **Artikel:** ${artikel}\n💸 **Preis:** ${preis.toFixed(2)}€\n\n**Zwischensumme:** ${sum.toFixed(2)}€`)
-        .setImage(BANNER_URL)
-        .setFooter({ text: SHOP_FOOTER });
+  const sum = items.reduce((a, b) => a + b.price, 0);
+  const embed = new EmbedBuilder()
+    .setColor("#00c851")
+    .setTitle(`🧾 Bestellung von (${kunde.tag})`)
+    .setDescription(`🛒 **Artikel:** ${artikel}\n💸 **Preis:** ${preis.toFixed(2)}€\n\n**Zwischensumme:** ${sum.toFixed(2)}€`)
+    .setImage(BANNER_URL)
+    .setFooter({ text: SHOP_FOOTER });
 
-      const menu = new StringSelectMenuBuilder()
-        .setCustomId("order_actions")
-        .setPlaceholder("Aktion auswählen")
-        .addOptions(
-          { label: "Artikel hinzufügen", value: "add_item", emoji: "➕" },
-          { label: "Bestellung abschließen", value: "finish_order", emoji: "✅" },
-        );
+  const addBtn = new ButtonBuilder()
+    .setCustomId("order_add_item")
+    .setLabel("➕ Artikel hinzufügen")
+    .setStyle(ButtonStyle.Secondary);
 
-      const msg = await i.reply({ content: `${kunde}`, embeds: [embed], components: [new ActionRowBuilder().addComponents(menu)], fetchReply: true });
+  const removeBtn = new ButtonBuilder()
+    .setCustomId("order_remove_item")
+    .setLabel("➖ Artikel entfernen")
+    .setStyle(ButtonStyle.Danger);
 
-      orders.push({
-        messageId: msg.id,
-        channelId: msg.channel.id,
-        guildId: msg.guild.id,
-        customerId: kunde.id,
-        items
-      });
-      saveJson(ORDERS_FILE, orders);
-    }
+  const finishBtn = new ButtonBuilder()
+    .setCustomId("order_finish")
+    .setLabel("✅ Bestellung abschließen")
+    .setStyle(ButtonStyle.Success);
 
-    // Order Actions
-    if (i.isStringSelectMenu() && i.customId === "order_actions") {
-      const orders = loadJson(ORDERS_FILE);
-      const order = orders.find(o => o.messageId === i.message.id);
-      if (!order) return i.reply({ content: "❌ Bestellung nicht gefunden.", ephemeral: true });
+  const msg = await i.reply({
+    content: `${kunde}`,
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(addBtn, removeBtn, finishBtn)],
+    fetchReply: true
+  });
 
-      if (i.values[0] === "add_item") {
-        const modal = new ModalBuilder().setCustomId(`order_add_${order.messageId}`).setTitle("Artikel hinzufügen");
-        const name = new TextInputBuilder().setCustomId("o_name").setLabel("Artikelname").setStyle(TextInputStyle.Short).setRequired(true);
-        const price = new TextInputBuilder().setCustomId("o_price").setLabel("Preis (€)").setStyle(TextInputStyle.Short).setRequired(true);
-        modal.addComponents(new ActionRowBuilder().addComponents(name), new ActionRowBuilder().addComponents(price));
-        return i.showModal(modal);
-      }
+  orders.push({
+    messageId: msg.id,
+    channelId: msg.channel.id,
+    guildId: msg.guild.id,
+    customerId: kunde.id,
+    items
+  });
+  saveJson(ORDERS_FILE, orders);
+}
 
-      if (i.values[0] === "finish_order") {
-        const total = order.items.reduce((a, b) => a + b.price, 0);
-        const embed = EmbedBuilder.from(i.message.embeds[0])
-          .setDescription(
-            order.items.map((it, idx) => `**${idx + 1}.** ${it.name} — ${it.price.toFixed(2)}€`).join("\n") +
-            `\n\n💰 **Gesamt:** ${total.toFixed(2)}€`
-          );
-        const rowDisabled = new ActionRowBuilder().addComponents(
-          StringSelectMenuBuilder.from(i.component).setDisabled(true)
-        );
-        await i.message.edit({ embeds: [embed], components: [rowDisabled] });
-        return i.reply({ content: "✅ Bestellung abgeschlossen.", ephemeral: true });
-      }
-    }
+/* ---- Order Buttons ---- */
+if (i.isButton() && (i.customId === "order_add_item" || i.customId === "order_remove_item" || i.customId === "order_finish")) {
+  const orders = loadJson(ORDERS_FILE);
+  const order = orders.find(o => o.messageId === i.message.id);
+  if (!order) return i.reply({ content: "❌ Bestellung nicht gefunden.", ephemeral: true });
+
+  // Artikel hinzufügen
+  if (i.customId === "order_add_item") {
+    const modal = new ModalBuilder().setCustomId(`order_add_${order.messageId}`).setTitle("Artikel hinzufügen");
+    const name = new TextInputBuilder().setCustomId("o_name").setLabel("Artikelname").setStyle(TextInputStyle.Short).setRequired(true);
+    const price = new TextInputBuilder().setCustomId("o_price").setLabel("Preis (€)").setStyle(TextInputStyle.Short).setRequired(true);
+    modal.addComponents(new ActionRowBuilder().addComponents(name), new ActionRowBuilder().addComponents(price));
+    return i.showModal(modal);
+  }
+
+  // Artikel entfernen
+  if (i.customId === "order_remove_item") {
+    if (!order.items.length)
+      return i.reply({ content: "❌ Keine Artikel in dieser Bestellung.", ephemeral: true });
+
+    const select = new StringSelectMenuBuilder()
+      .setCustomId(`order_remove_select_${order.messageId}`)
+      .setPlaceholder("Wähle einen Artikel zum Entfernen")
+      .addOptions(order.items.map((item, idx) => ({
+        label: `${item.name} (${item.price.toFixed(2)}€)`,
+        value: idx.toString(),
+        emoji: "🗑️"
+      })));
+
+    const row = new ActionRowBuilder().addComponents(select);
+    return i.reply({ content: "Wähle den Artikel, den du entfernen möchtest:", components: [row], ephemeral: true });
+  }
+
+  // Bestellung abschließen
+  if (i.customId === "order_finish") {
+    const total = order.items.reduce((a, b) => a + b.price, 0);
+    const embed = EmbedBuilder.from(i.message.embeds[0])
+      .setDescription(
+        order.items.map((it, idx) => `**${idx + 1}.** ${it.name} — ${it.price.toFixed(2)}€`).join("\n") +
+        `\n\n💰 **Gesamt:** ${total.toFixed(2)}€`
+      );
+
+    const rowDisabled = new ActionRowBuilder().addComponents(
+      ButtonBuilder.from(i.message.components[0].components[0]).setDisabled(true),
+      ButtonBuilder.from(i.message.components[0].components[1]).setDisabled(true),
+      ButtonBuilder.from(i.message.components[0].components[2]).setDisabled(true)
+    );
+
+    await i.message.edit({ embeds: [embed], components: [rowDisabled] });
+    return i.reply({ content: "✅ Bestellung abgeschlossen.", ephemeral: true });
+  }
+}
+
+/* ---- Artikel entfernen Auswahl ---- */
+if (i.isStringSelectMenu() && i.customId.startsWith("order_remove_select_")) {
+  const msgId = i.customId.split("order_remove_select_")[1];
+  const orders = loadJson(ORDERS_FILE);
+  const order = orders.find(o => o.messageId === msgId);
+  if (!order) return i.reply({ content: "❌ Bestellung nicht gefunden.", ephemeral: true });
+
+  const index = parseInt(i.values[0]);
+  const removed = order.items.splice(index, 1)[0];
+  saveJson(ORDERS_FILE, orders);
+
+  const total = order.items.reduce((a, b) => a + b.price, 0);
+  const msg = await i.channel.messages.fetch(msgId);
+  const embed = EmbedBuilder.from(msg.embeds[0])
+    .setDescription(
+      (order.items.length
+        ? order.items.map((it, idx) => `**${idx + 1}.** ${it.name} — ${it.price.toFixed(2)}€`).join("\n")
+        : "_Keine Artikel mehr in der Bestellung_") +
+      `\n\n💰 **Gesamt:** ${total.toFixed(2)}€`
+    );
+  await msg.edit({ embeds: [embed] });
+
+  return i.reply({ content: `🗑️ Artikel **${removed.name}** entfernt.`, ephemeral: true });
+}
+
+/* ---- Order Modal Submit (add item) ---- */
+if (i.isModalSubmit() && i.customId.startsWith("order_add_")) {
+  const msgId = i.customId.split("order_add_")[1];
+  const orders = loadJson(ORDERS_FILE);
+  const order = orders.find(o => o.messageId === msgId);
+  if (!order) return i.reply({ content: "❌ Bestellung nicht gefunden.", ephemeral: true });
+
+  const name = i.fields.getTextInputValue("o_name");
+  const priceStr = i.fields.getTextInputValue("o_price");
+  const price = parseFloat(priceStr.replace(",", "."));
+  if (isNaN(price) || price <= 0) return i.reply({ content: "⚠️ Ungültiger Preis.", ephemeral: true });
+
+  order.items.push({ name, price });
+  saveJson(ORDERS_FILE, orders);
+
+  const total = order.items.reduce((a, b) => a + b.price, 0);
+  const msg = await i.channel.messages.fetch(msgId);
+  const embed = EmbedBuilder.from(msg.embeds[0])
+    .setDescription(
+      order.items.map((it, idx) => `**${idx + 1}.** ${it.name} — ${it.price.toFixed(2)}€`).join("\n") +
+      `\n\n💰 **Gesamt:** ${total.toFixed(2)}€`
+    );
+  await msg.edit({ embeds: [embed] });
+
+  return i.reply({ content: "➕ Artikel hinzugefügt!", ephemeral: true });
+}
+
 
     // Order Modal Submit (add item)
     if (i.isModalSubmit() && i.customId.startsWith("order_add_")) {
@@ -911,3 +999,4 @@ client.on("voiceStateUpdate", (o, n) => {
    Login
 =========================== */
 client.login(process.env.DISCORD_TOKEN);
+
