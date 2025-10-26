@@ -57,8 +57,16 @@ const saveJson = (p, d) => fs.writeFileSync(p, JSON.stringify(d, null, 2));
    Slash Commands
 =========================== */
 const commands = [
-  new SlashCommandBuilder().setName("paypal").setDescription("Erstellt einen PayPal-Zahlungslink")
-    .addNumberOption(o => o.setName("betrag").setDescription("Betrag in Euro").setRequired(true)),
+ new SlashCommandBuilder()
+  .setName("paypal")
+  .setDescription("Erstellt einen PayPal-Zahlungslink")
+  .addStringOption(o =>
+    o
+      .setName("betrag")
+      .setDescription("Betrag in Euro (z. B. 12.50 oder 3,99)")
+      .setRequired(true)
+  ),
+
 
   new SlashCommandBuilder().setName("panel").setDescription("Sendet das Ticket-Panel (Dropdown)"),
 
@@ -257,20 +265,47 @@ client.on("interactionCreate", async (i) => {
       }
     }
 
-    /* ---- PAYPAL ---- */
-    if (i.isChatInputCommand() && i.commandName === "paypal") {
-      const amount = i.options.getNumber("betrag");
-      if (!amount || amount <= 0) return i.reply({ content: "⚠️ Ungültiger Betrag!", ephemeral: true });
+   /* ---- PAYPAL ---- */
+if (i.isChatInputCommand() && i.commandName === "paypal") {
+  try {
+    // Betrag als String holen, damit auch Komma oder Punkt funktioniert
+    let amountStr = i.options.getString("betrag");
+    amountStr = amountStr.replace(",", "."); // Komma in Punkt umwandeln
+    const amount = parseFloat(amountStr);
 
-      const link = `https://www.paypal.com/paypalme/jonahborospreitzer/${amount}`;
-      const embed = new EmbedBuilder()
-        .setColor("#0099ff")
-        .setTitle("💰 PayPal Zahlung")
-        .setDescription(`Klicke auf den Button, um **${amount}€** zu zahlen.`)
-        .setFooter({ text: "Kandar Community" });
-      const btn = new ButtonBuilder().setLabel(`Jetzt ${amount}€ zahlen`).setStyle(ButtonStyle.Link).setURL(link);
-      return i.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(btn)] });
-    }
+    if (isNaN(amount) || amount <= 0)
+      return i.reply({
+        content: "⚠️ Bitte gib einen gültigen Betrag an (z. B. 3.50 € oder 4,20 €)!",
+        ephemeral: true,
+      });
+
+    const formatted = amount.toFixed(2);
+    const link = `https://www.paypal.com/paypalme/jonahborospreitzer/${formatted}`;
+
+    const embed = new EmbedBuilder()
+      .setColor("#0099ff")
+      .setTitle("💰 PayPal Zahlung")
+      .setDescription(`Klicke auf den Button, um **${formatted} €** zu zahlen.`)
+      .setImage(BANNER_URL)
+      .setFooter({ text: "Kandar Community | PayPal Service" });
+
+    const button = new ButtonBuilder()
+      .setLabel(`Jetzt ${formatted} € zahlen`)
+      .setStyle(ButtonStyle.Link)
+      .setURL(link);
+
+    return i.reply({
+      embeds: [embed],
+      components: [new ActionRowBuilder().addComponents(button)],
+    });
+  } catch (err) {
+    console.error("❌ Fehler beim PayPal-Command:", err);
+    return i.reply({
+      content: "❌ Beim Erstellen des PayPal-Links ist ein Fehler aufgetreten.",
+      ephemeral: true,
+    });
+  }
+}
 
     /* ---- TICKET PANEL /panel ---- */
     if (i.isChatInputCommand() && i.commandName === "panel") {
@@ -999,4 +1034,5 @@ client.on("voiceStateUpdate", (o, n) => {
    Login
 =========================== */
 client.login(process.env.DISCORD_TOKEN);
+
 
