@@ -113,6 +113,11 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
   );
   console.log("✅ Slash Commands registriert!");
 })();
+//embed Command
+new SlashCommandBuilder()
+  .setName("embed")
+  .setDescription("Erstelle ein benutzerdefiniertes Embed über ein Modal."),
+
 
 /* ===========================
    Utils
@@ -486,6 +491,81 @@ if (i.isChatInputCommand() && i.commandName === "paypal") {
       setTimeout(() => ch.delete().catch(() => {}), 10_000);
       return;
     }
+/* ---- EMBED COMMAND ---- */
+if (i.isChatInputCommand() && i.commandName === "embed") {
+  // Modal erstellen
+  const modal = new ModalBuilder()
+    .setCustomId("create_embed_modal")
+    .setTitle("📘 Embed erstellen");
+
+  const color = new TextInputBuilder()
+    .setCustomId("embed_color")
+    .setLabel("Farbe (z. B. #FF0000 oder leave empty für Standard)")
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false);
+
+  const title = new TextInputBuilder()
+    .setCustomId("embed_title")
+    .setLabel("Titel (optional)")
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false);
+
+  const desc = new TextInputBuilder()
+    .setCustomId("embed_desc")
+    .setLabel("Beschreibung (optional)")
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(false);
+
+  const footer = new TextInputBuilder()
+    .setCustomId("embed_footer")
+    .setLabel("Footer (optional)")
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false);
+
+  const thumb = new TextInputBuilder()
+    .setCustomId("embed_thumb")
+    .setLabel("Thumbnail URL (optional)")
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false);
+
+  const image = new TextInputBuilder()
+    .setCustomId("embed_image")
+    .setLabel("Embed Bild URL (optional)")
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false);
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(color),
+    new ActionRowBuilder().addComponents(title),
+    new ActionRowBuilder().addComponents(desc),
+    new ActionRowBuilder().addComponents(footer),
+    new ActionRowBuilder().addComponents(thumb),
+    new ActionRowBuilder().addComponents(image)
+  );
+
+  return i.showModal(modal);
+}
+
+/* ---- Embed Modal Verarbeitung ---- */
+if (i.isModalSubmit() && i.customId === "create_embed_modal") {
+  const color = i.fields.getTextInputValue("embed_color") || "#00FF88";
+  const title = i.fields.getTextInputValue("embed_title") || null;
+  const desc = i.fields.getTextInputValue("embed_desc") || null;
+  const footer = i.fields.getTextInputValue("embed_footer") || null;
+  const thumb = i.fields.getTextInputValue("embed_thumb") || null;
+  const image = i.fields.getTextInputValue("embed_image") || null;
+
+  const embed = new EmbedBuilder().setColor(color);
+
+  if (title) embed.setTitle(title);
+  if (desc) embed.setDescription(desc);
+  if (footer) embed.setFooter({ text: footer });
+  if (thumb) embed.setThumbnail(thumb);
+  if (image) embed.setImage(image);
+
+  await i.reply({ content: "✅ Embed erstellt!", ephemeral: true });
+  return i.channel.send({ embeds: [embed] });
+}
 
     /* ---- CREATOR ADD ---- */
     if (i.isChatInputCommand() && i.commandName === "creator" && i.options.getSubcommand() === "add") {
@@ -1034,5 +1114,6 @@ client.on("voiceStateUpdate", (o, n) => {
    Login
 =========================== */
 client.login(process.env.DISCORD_TOKEN);
+
 
 
