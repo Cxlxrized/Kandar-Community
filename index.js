@@ -103,6 +103,10 @@ const commands = [
     .addStringOption(o => o.setName("artikel").setDescription("Artikel").setRequired(true))
     .addNumberOption(o => o.setName("preis").setDescription("Preis (€)").setRequired(true)),
 ].map(c => c.toJSON());
+//Embed Command (Custom Embed)
+new SlashCommandBuilder()
+  .setName("embed")
+  .setDescription("Erstelle ein benutzerdefiniertes Embed über ein Modal."),
 
 // Commands registrieren
 const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
@@ -113,10 +117,7 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
   );
   console.log("✅ Slash Commands registriert!");
 })();
-//embed Command
-new SlashCommandBuilder()
-  .setName("embed")
-  .setDescription("Erstelle ein benutzerdefiniertes Embed über ein Modal."),
+
 
 
 /* ===========================
@@ -1114,6 +1115,7 @@ client.on("voiceStateUpdate", (o, n) => {
    Login
 =========================== */
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
