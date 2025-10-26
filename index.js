@@ -165,8 +165,7 @@ client.once("ready", async () => {
     else setTimeout(() => endGiveaway(g.messageId).catch(() => {}), rest);
   }
   console.log("📊 Server-Stats aktiv – Giveaways reaktiviert.");
-});
-/* =========================================================
+});/* =========================================================
    Runtime-State (Bestellungen)
 ========================================================= */
 const ORDERS_FILE = "./data/orders.json";
