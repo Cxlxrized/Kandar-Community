@@ -624,116 +624,144 @@ client.on("interactionCreate", async (i) => {
     }
 
     /* ---------- ORDER (ohne Ticket) ---------- */
-    if (i.isChatInputCommand() && i.commandName === "order") {
-      const kunde = i.options.getUser("kunde");
-      const artikel = i.options.getString("artikel");
-      const preis = Number(i.options.getNumber("preis"));
+if (i.isChatInputCommand() && i.commandName === "order") {
+  const kunde = i.options.getUser("kunde");
+  const artikel = i.options.getString("artikel");
+  const preis = Number(i.options.getNumber("preis"));
 
-      const sessionId = `${i.channel.id}:${i.user.id}:${Date.now()}`;
-      const entry = {
-        id: sessionId,
-        kundeId: kunde.id,
-        items: [{ name: artikel, price: preis }],
-        closed: false,
-      };
-      orderSessions.set(sessionId, entry);
+  const sessionId = `${i.channel.id}:${i.user.id}:${Date.now()}`;
+  const entry = {
+    id: sessionId,
+    kundeId: kunde.id,
+    items: [{ name: artikel, price: preis }],
+    closed: false,
+  };
+  orderSessions.set(sessionId, entry);
 
-      const embed = new EmbedBuilder()
-        .setColor(Colors.Blurple)
-        .setTitle(`🧾 Bestellung von ${kunde.username}`)
-        .setDescription(`🛍️ **Kandar Shop**\n\n🧩 **Artikel**\n• ${artikel} — **${preis.toFixed(2)}€**\n\n💶 **Gesamt:** **${preis.toFixed(2)}€**`)
-        .setImage(BANNER_URL)
-        .setFooter({ text: "Kandar Shop" });
+  const embed = buildOrderEmbed(entry);
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`order_add:${sessionId}`).setLabel("➕ Artikel hinzufügen").setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(`order_remove:${sessionId}`).setLabel("➖ Artikel entfernen").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`order_finish:${sessionId}`).setLabel("✅ Bestellung abschließen").setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`order_cancel:${sessionId}`).setLabel("🗑️ Abbrechen").setStyle(ButtonStyle.Danger),
-      );
+  const row = buildOrderButtons(entry);
 
-      return i.reply({ content: `${kunde}`, embeds: [embed], components: [row] });
-    }
+  return i.reply({ content: `${kunde}`, embeds: [embed], components: [row] });
+}
 
-    const rebuildOrderEmbed = (entry) => {
-      const sum = entry.items.reduce((a, b) => a + Number(b.price || 0), 0);
-      const list = entry.items.map(it => `• ${it.name} — **${Number(it.price).toFixed(2)}€**`).join("\n") || "—";
-      return new EmbedBuilder()
-        .setColor(Colors.Blurple)
-        .setTitle(`🧾 Bestellung von ${client.users.cache.get(entry.kundeId)?.username || "Kunde"}`)
-        .setDescription(`🛍️ **Kandar Shop**\n\n🧩 **Artikel**\n${list}\n\n💶 **Gesamt:** **${sum.toFixed(2)}€**`)
-        .setImage(BANNER_URL)
-        .setFooter({ text: "Kandar Shop" });
-    };
+/* ---------- Hilfsfunktionen für Order ---------- */
+function calcSum(entry) {
+  return entry.items.reduce((a, b) => a + Number(b.price || 0), 0);
+}
 
-    // Order Buttons
-    if (i.isButton() && i.customId.startsWith("order_")) {
-      const [action, sessionId] = i.customId.split(":");
-      const entry = orderSessions.get(sessionId);
-      if (!entry || entry.closed) return i.reply({ content: "❌ Diese Bestellung ist nicht mehr aktiv.", ephemeral: true });
+function buildOrderEmbed(entry) {
+  const sum = calcSum(entry);
+  const list = entry.items
+    .map(it => `• ${it.name} — **${Number(it.price).toFixed(2)} €**`)
+    .join("\n");
+  return new EmbedBuilder()
+    .setColor(Colors.Blurple)
+    .setTitle(`🧾 Bestellung von ${client.users.cache.get(entry.kundeId)?.username || "Kunde"}`)
+    .setDescription(`🛍️ **Kandar Shop**\n\n🧩 **Artikel**\n${list}\n\n💶 **Gesamt:** **${sum.toFixed(2)} €**`)
+    .setImage(BANNER_URL)
+    .setFooter({ text: "Kandar Shop" });
+}
 
-      if (action === "order_add") {
-        const modal = new ModalBuilder().setCustomId(`order_add_modal:${sessionId}`).setTitle("Artikel hinzufügen");
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("name").setLabel("Artikelname").setStyle(TextInputStyle.Short).setRequired(true)),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("price").setLabel("Preis (€)").setStyle(TextInputStyle.Short).setRequired(true)),
-        );
-        return i.showModal(modal);
-      }
+function buildOrderButtons(entry) {
+  const sum = calcSum(entry).toFixed(2);
+  const payUrl = `https://www.paypal.com/paypalme/${process.env.PAYPAL_ME || "jonahborospreitzer"}/${sum}`;
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`order_add:${entry.id}`).setLabel("➕ Artikel hinzufügen").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`order_remove:${entry.id}`).setLabel("➖ Artikel entfernen").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`order_finish:${entry.id}`).setLabel("✅ Bestellung abschließen").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`order_cancel:${entry.id}`).setLabel("🗑️ Abbrechen").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setLabel(`💰 Jetzt ${sum} € zahlen`).setStyle(ButtonStyle.Link).setURL(payUrl)
+  );
+}
 
-      if (action === "order_remove") {
-        const modal = new ModalBuilder().setCustomId(`order_remove_modal:${sessionId}`).setTitle("Artikel entfernen");
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("name").setLabel("Exakter Artikelname zum Entfernen").setStyle(TextInputStyle.Short).setRequired(true)),
-        );
-        return i.showModal(modal);
-      }
+/* ---------- Order-Button-Handler ---------- */
+if (i.isButton() && i.customId.startsWith("order_")) {
+  const [action, sessionId] = i.customId.split(":");
+  const entry = orderSessions.get(sessionId);
+  if (!entry || entry.closed)
+    return i.reply({ content: "❌ Diese Bestellung ist nicht mehr aktiv.", ephemeral: true });
 
-      if (action === "order_finish") {
-        entry.closed = true;
-        orderSessions.set(sessionId, entry);
-        const embed = rebuildOrderEmbed(entry).setColor(Colors.Green).setTitle(`✅ Bestellung abgeschlossen — ${client.users.cache.get(entry.kundeId)?.username || "Kunde"}`);
-        return i.update({ embeds: [embed], components: [] });
-      }
+  if (action === "order_add") {
+    const modal = new ModalBuilder()
+      .setCustomId(`order_add_modal:${sessionId}`)
+      .setTitle("Artikel hinzufügen");
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId("name").setLabel("Artikelname").setStyle(TextInputStyle.Short).setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId("price").setLabel("Preis (€)").setStyle(TextInputStyle.Short).setRequired(true)
+      )
+    );
+    return i.showModal(modal);
+  }
 
-      if (action === "order_cancel") {
-        entry.closed = true;
-        orderSessions.delete(sessionId);
-        return i.update({ content: "🗑️ Bestellung verworfen.", embeds: [], components: [] });
-      }
-    }
+  if (action === "order_remove") {
+    const modal = new ModalBuilder()
+      .setCustomId(`order_remove_modal:${sessionId}`)
+      .setTitle("Artikel entfernen");
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId("name").setLabel("Exakter Artikelname zum Entfernen").setStyle(TextInputStyle.Short).setRequired(true)
+      )
+    );
+    return i.showModal(modal);
+  }
 
-    if (i.isModalSubmit() && i.customId.startsWith("order_add_modal:")) {
-      const sessionId = i.customId.split(":")[1];
-      const entry = orderSessions.get(sessionId);
-      if (!entry || entry.closed) return i.reply({ content: "❌ Bestellung nicht mehr aktiv.", ephemeral: true });
+  if (action === "order_finish") {
+    entry.closed = true;
+    const embed = buildOrderEmbed(entry)
+      .setColor(Colors.Green)
+      .setTitle(`✅ Bestellung abgeschlossen — ${client.users.cache.get(entry.kundeId)?.username || "Kunde"}`);
+    return i.update({ embeds: [embed], components: [] });
+  }
 
-      const name = i.fields.getTextInputValue("name");
-      const price = parseFloat(i.fields.getTextInputValue("price").replace(",", "."));
-      if (!name || isNaN(price) || price < 0) return i.reply({ content: "⚠️ Ungültiger Artikel/Preis.", ephemeral: true });
+  if (action === "order_cancel") {
+    entry.closed = true;
+    orderSessions.delete(sessionId);
+    return i.update({ content: "🗑️ Bestellung verworfen.", embeds: [], components: [] });
+  }
+}
 
-      entry.items.push({ name, price });
-      orderSessions.set(sessionId, entry);
+/* ---------- Modal-Handler Add/Remove ---------- */
+if (i.isModalSubmit() && i.customId.startsWith("order_add_modal:")) {
+  const sessionId = i.customId.split(":")[1];
+  const entry = orderSessions.get(sessionId);
+  if (!entry || entry.closed)
+    return i.reply({ content: "❌ Bestellung nicht mehr aktiv.", ephemeral: true });
 
-      const embed = rebuildOrderEmbed(entry);
-      return i.reply({ embeds: [embed] });
-    }
+  const name = i.fields.getTextInputValue("name");
+  const price = parseFloat(i.fields.getTextInputValue("price").replace(",", "."));
+  if (!name || isNaN(price) || price < 0)
+    return i.reply({ content: "⚠️ Ungültiger Artikel oder Preis.", ephemeral: true });
 
-    if (i.isModalSubmit() && i.customId.startsWith("order_remove_modal:")) {
-      const sessionId = i.customId.split(":")[1];
-      const entry = orderSessions.get(sessionId);
-      if (!entry || entry.closed) return i.reply({ content: "❌ Bestellung nicht mehr aktiv.", ephemeral: true });
+  entry.items.push({ name, price });
+  orderSessions.set(sessionId, entry);
 
-      const name = i.fields.getTextInputValue("name");
-      const idx = entry.items.findIndex(it => it.name.toLowerCase() === name.toLowerCase());
-      if (idx === -1) return i.reply({ content: "⚠️ Artikel nicht gefunden.", ephemeral: true });
+  const embed = buildOrderEmbed(entry);
+  const row = buildOrderButtons(entry);
+  return i.reply({ embeds: [embed], components: [row] });
+}
 
-      entry.items.splice(idx, 1);
-      orderSessions.set(sessionId, entry);
+if (i.isModalSubmit() && i.customId.startsWith("order_remove_modal:")) {
+  const sessionId = i.customId.split(":")[1];
+  const entry = orderSessions.get(sessionId);
+  if (!entry || entry.closed)
+    return i.reply({ content: "❌ Bestellung nicht mehr aktiv.", ephemeral: true });
 
-      const embed = rebuildOrderEmbed(entry);
-      return i.reply({ embeds: [embed] });
-    }
+  const name = i.fields.getTextInputValue("name");
+  const idx = entry.items.findIndex(it => it.name.toLowerCase() === name.toLowerCase());
+  if (idx === -1)
+    return i.reply({ content: "⚠️ Artikel nicht gefunden.", ephemeral: true });
+
+  entry.items.splice(idx, 1);
+  orderSessions.set(sessionId, entry);
+
+  const embed = buildOrderEmbed(entry);
+  const row = buildOrderButtons(entry);
+  return i.reply({ embeds: [embed], components: [row] });
+}
 
     /* ---------- FINISH & FEEDBACK ---------- */
     if (i.isChatInputCommand() && i.commandName === "finish") {
