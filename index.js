@@ -335,7 +335,7 @@ client.on("interactionCreate", async (i) => {
       const embed = new EmbedBuilder()
         .setColor(Colors.Purple)
         .setTitle("🔴 Live auf Twitch!")
-        .setDescription(`**${twitchUser}** ist jetzt live! Schau vorbei 👇\n${url}`)
+        .setDescription(`@everyone **${twitchUser}** ist jetzt live! Schau vorbei 👇\n${url}`)
         .setImage(preview)
         .setFooter({ text: "Kandar Streaming" });
 
@@ -1140,3 +1140,4 @@ client.on("voiceStateUpdate", (o, n) => {
    Login
 =========================== */
 client.login(process.env.DISCORD_TOKEN);
+
