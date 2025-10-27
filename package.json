@@ -1,18 +1,35 @@
 {
-  "name": "kandar",
+  "name": "kandar-discord-bot",
   "version": "1.0.0",
-  "description": "",
+  "description": "All-in-one Discord Bot für Kandar Community – mit Tickets, Verify, Order, PayPal, Giveaways, Twitch, Creator, Logging & mehr.",
   "main": "index.js",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Kandar Community",
+  "license": "MIT",
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
-    "discord.js": "^14.23.2",
-    "dotenv": "^17.2.3",
-    "express": "^5.1.0",
-    "node-fetch": "^3.3.2"
-  }
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "kandar",
+    "order-system",
+    "ticket",
+    "paypal",
+    "giveaway",
+    "verify",
+    "logging",
+    "discordjs"
+  ]
 }
