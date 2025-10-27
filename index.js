@@ -41,7 +41,7 @@ const GIVEAWAY_FILE = "./data/giveaways.json";
 if (!fs.existsSync(GIVEAWAY_FILE)) fs.writeFileSync(GIVEAWAY_FILE, "[]");
 
 /* ===========================
-   SLASH COMMANDS
+   SLASH COMMANDS 
 =========================== */
 const commands = [
   new SlashCommandBuilder()
